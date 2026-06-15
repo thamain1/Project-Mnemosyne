@@ -26,29 +26,39 @@ authorized teammate connect and work on demand.
 - Schema lives in `supabase/migrations/`. Apply via the **Supabase Management API** (not psql/pooler/
   CLI `db execute` — those time out in this environment).
 - Migrations are **additive**. Don't rewrite history; add a new numbered migration.
-- Embedding dimension is `vector(768)` (Gemini text-embedding-004). Change consistently if the
-  embedder changes.
-- RLS is enabled on every table. Sensitivity tiers (`team` / `restricted` / `admin`) gate reads;
-  refine per-role policies as decided with Jesse (VISION §8). Use the `is_admin()` / `is_team_member()`
-  SECURITY DEFINER helpers — never write cross-table policies that recurse.
+- Embedding dimension is `vector(768)`. The embedding **model** is being confirmed before ingestion
+  (must output 768 dims; `text-embedding-004` is retired) — update consistently if it changes.
+- **Access model (survivability first):** every active team member has full read+write on knowledge/
+  work tables (projects, memory, documents, deals, clients, contacts, infra registry). Only high-blast-
+  radius **integrity** actions are gated: `team_members` writes are admin/service-role only (+ a
+  last-admin survivability trigger); `secrets_vault` value is never directly selectable (column
+  privilege revoked) — only via `get_secret()`; `activity_log` is append-only; `repos` (code) is
+  read-all but **write requires `can_code`** (admins + named devs). Nobody is locked out of *seeing*
+  anything. The `sensitivity` columns are dormant scaffolding (unenforced today).
+- SECURITY DEFINER helpers (`is_team_member`/`is_admin`/`can_code`/`current_member_role`/`get_secret`)
+  are hardened: empty `search_path`, fully-qualified objects, `PUBLIC` execute revoked. Owner-executed,
+  so they break the RLS lookup cycle (no 42P17). Never write cross-table policies that recurse.
 
 ## Secrets — hard rules
 - **Never commit secrets.** `.env.local`, `secrets/`, `*.creds`, `service-account*.json`, etc. are
   gitignored. Real values go in `.env.local` only.
-- Credentials shared through the app live in `secrets_vault` and are read **only** via the
-  `get_secret()` RPC — admin-gated and written to `activity_log` on every access.
+- Credentials shared through the app live in `secrets_vault`. The secret **value** is never directly
+  selectable (column privilege revoked); it's returned **only** via the `get_secret()` RPC — open to
+  any team member but written to the append-only `activity_log` on every access. Encryption-at-rest is
+  still a TODO: **do not ingest real secrets until a vault backend is chosen.**
 - Never put MOUs/SOWs/invoices in the repo (`contracts/` and `docs/MOU*|SOW*|INVOICE*` are gitignored).
 
 ## Working model (codified, first-class — see VISION §6)
 - **Memory cadence:** one fact per entry, kebab-case slug, index the entry. We capture *how we work*,
   not just data, so the model outlives any individual.
-- **Codex QA/QC:** Claude leads coding; Codex assists with QA/QC. Write ONE representative unit →
-  checkpoint → proceed (don't batch-produce before a checkpoint).
+- **Atlas (Claude) leads coding; Aegis (Codex) does QA/QC.** Write ONE representative unit →
+  checkpoint with Aegis → proceed (don't batch-produce before a checkpoint). See `AGENTS.md`.
 - **Build gating:** for client engagements, proposal → approval → signature → M1 → build. (Project
   4ward is internal infra, so this gate doesn't apply to it.)
 - **Git:** commit freely; **push only when explicitly asked.**
 - **Packages:** before installing/upgrading to a version published <14 days ago, flag it first.
 
 ## Phases (see VISION §10)
-0 Provision (current) → 1 Continuity core (ingestion + MCP) → 2 Team onboarding (Auth/RLS/dashboard)
-→ 3 Sales factory → 4 Dev+Ops factory → 5 "4ward Router" model gateway.
+0 Provision (current) → 1 Continuity core (ingestion + MCP) → 2 Team onboarding (Auth/RLS/web dashboard
+= the team GUI) → 3 Sales factory → 4 Dev+Ops factory → 5 "4ward Router" model gateway + optional Tauri
+desktop wrapper (installable app over the same web codebase).

@@ -124,6 +124,16 @@ worse than over-sharing inside a 7-person company. The `sensitivity` columns rem
 dormant scaffolding so access can be tightened later without a migration, but nothing enforces them
 today. Secret retrieval (`get_secret()`) is open to any team member and **logged** to `activity_log`.
 
+**Refinement after Aegis QC (2026-06-14):** "open access" means *information*, not destructive power.
+Knowledge/work tables stay fully read+write for everyone, but high-blast-radius **integrity** actions
+are gated: `team_members` writes are admin/service-role only (+ a last-admin survivability trigger so
+the team can't be wiped); the `secrets_vault` **value** is column-revoked and reachable only via the
+audited `get_secret()`; `activity_log` is append-only (no forging/editing). **Code is a tier:** every
+member can *read* code/repos, but **writing code requires a `can_code` flag** (admins + named devs —
+e.g. David Fagel, Bryan Hill — flipped on at onboarding; no migration needed). Actual source lives in
+GitHub, which enforces its own push perms; `can_code` mirrors that on the platform. Nobody is ever
+locked out of *seeing* anything.
+
 ## 9. Future pillar — proprietary model gateway ("4ward Router")
 
 A company-proprietary, OpenRouter-style gateway (ref: https://openrouter.ai/): **one internal API in
@@ -136,10 +146,13 @@ fallback, and policy. Not in the continuity-core scope; captured here as a roadm
 - **Phase 0 — Provision.** Repo + Supabase project + house-stack scaffold + schema migration + RLS. *(current)*
 - **Phase 1 — Continuity core.** Ingestion pipeline (memory files + all `contracts/` docs → embedded),
   MCP server (`recall`/`remember`/`search_docs`/`get_secret`). Bus-factor risk gone at end of phase.
-- **Phase 2 — Team onboarding.** Auth + RLS, invite the 7-person team, dashboard read views, MCP rollout.
+- **Phase 2 — Team onboarding.** Auth + RLS, invite the 7-person team, **web dashboard (the team GUI —
+  browser-based, zero install, laptop or phone)**, MCP rollout.
 - **Phase 3 — Sales factory.** Pipeline + deal stages + doc-generation hooks.
 - **Phase 4 — Dev + Ops factory.** Live registry sync, deploy map, incidents.
-- **Phase 5 (roadmap) — 4ward Router** model gateway.
+- **Phase 5 (roadmap) — 4ward Router** model gateway, **+ optional Tauri desktop wrapper** — package the
+  same web app as an installable Windows/Mac `.exe`/`.app` for an app-like (and offline-capable) feel.
+  A wrapper over the Phase-2 codebase, not a rebuild.
 
 ## 11. Open questions
 
@@ -148,3 +161,5 @@ fallback, and policy. Not in the continuity-core scope; captured here as a roadm
    team members (survivability first).
 3. Do team members each get their own Supabase Auth identity now, or staged?
 4. GitHub repo: `github.com/thamain1/Project-4ward` ✅ (confirm visibility is private).
+5. **Embedding model** — confirm the current 768-dim model before Phase 1 ingestion (`text-embedding-004`
+   is retired; need a live model explicitly set to 768 output dims).
