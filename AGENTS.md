@@ -16,6 +16,8 @@ Discussion/decisions happen in **`docs/threads/NNNN-<topic>.md`** (append a date
 `docs/threads/README.md`); standing task assignments live in the `▶` blocks. Resolved decisions get
 mirrored into `VISION.md`/`CLAUDE.md` (source of truth). **Target:** this moves into the DB
 (`agent_messages` + `activity_log`, dashboard-visible) once the MCP server is live.
+**Push policy:** agents may push **coordination artifacts** (`docs/threads/**` + own notes) without
+asking (standing auth, 2026-06-15); **code/migrations/app changes still require an explicit push.**
 
 ## What this is
 The shared "second brain" for **4ward Motion Solutions, Inc.** — a durable, access-controlled

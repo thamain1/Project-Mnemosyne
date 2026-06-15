@@ -57,7 +57,9 @@ authorized teammate connect and work on demand.
   (don't batch-produce before a checkpoint). See `AGENTS.md`.
 - **Build gating:** for client engagements, proposal → approval → signature → M1 → build. (Project
   4ward is internal infra, so this gate doesn't apply to it.)
-- **Git:** commit freely; **push only when explicitly asked.**
+- **Git:** commit freely; **push only when explicitly asked** — *except* **coordination artifacts**
+  (`docs/threads/**` + an agent's own notes), which agents may push without asking (narrow standing
+  authorization, granted 2026-06-15). Code, migrations, and app changes still require an explicit push.
 - **Agent coordination:** async via the repo (commit = send, pull = receive). Discussion/decisions go in
   `docs/threads/NNNN-<topic>.md` (dated, attributed, append-only); standing tasks in `AGENTS.md` `▶`
   blocks; resolved decisions mirrored here / in `VISION.md`. Target: `agent_messages` table once MCP is live.

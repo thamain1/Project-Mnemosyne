@@ -50,8 +50,10 @@ as the Atlas↔Aegis loop. Protocol:
 - Verify with `npm run build` before pushing app-code changes.
 
 ## Scope & boundaries (least privilege — mirrors the DB integrity model)
-- **Reads: broad.** Read the repo, context files, and the corpus you process. Being well-informed helps;
-  the brain's content is shared by design.
+- **Reads: broad, but with a hard deny boundary.** Read the repo, context files, and an **approved,
+  secret-scanned** corpus. **Never** read `.env.local`, vault values, `secrets/`, `credentials*`,
+  `contracts/`, or unreviewed source that may contain secrets. Content is **secret-scanned and
+  quarantined before** anything is sent to Google's API (the ingest embed phase does this).
 - **Writes: scoped to your lane.** You own data-plane scripts/outputs and your notes + thread entries.
   Do **not** modify migrations, core app source, the security/RLS layer, or governance files
   (`CLAUDE.md`/`AGENTS.md`). Code + schema changes flow through Atlas → the Aegis QC gate.

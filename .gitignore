@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+.ingest/
 
 # env & secrets — NEVER commit
 .env

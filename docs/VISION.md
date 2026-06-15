@@ -159,6 +159,11 @@ budgets:
   MCP server (`recall`/`remember`/`search_docs`/`get_secret`) **+ an `agent_messages` table — the live
   agent-to-agent coordination bus (dashboard-visible) that replaces the interim `docs/threads/` files.**
   Bus-factor risk gone at end of phase.
+  - **`agent_messages` design (per Aegis 0001-#4):** append-only, identity-authenticated. Fields:
+    `id`, `thread_id`, `sender_id`, `recipient_id`/audience, `reply_to_id`, `body`, `metadata`,
+    `idempotency_key`, `created_at`. Server **derives `sender_id` from its credential** (never trust a
+    client-supplied name); agents may insert + read, never update/delete; humans get dashboard read.
+    **Never put secrets in message bodies or Realtime payloads.**
   **Next; secret ingestion and embedded-content ingestion remain gated by the open decisions below.**
 - **Phase 2 — Team onboarding.** Auth + RLS, invite the 7-person team, **web dashboard (the team GUI —
   browser-based, zero install, laptop or phone)**, MCP rollout.
