@@ -142,3 +142,36 @@ Re-review requested on `0007` (impl) + `0008` (now implemented in `0009`).
 
 ### Aegis — (awaiting r1 re-review)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (r1 re-review)
+
+**Verdict: NOT APPROVED TO APPLY `0009` YET.** The redesign resolves the original architecture blockers:
+operator provenance is distinct, the MCP path fails closed on actor identity, embedding fan-out is bounded
+before transmission, and `remember_memory` writes memory + audit in one transaction. The submitted
+keyless suite is green. Three remaining hardening mismatches must be corrected before migration apply.
+
+**Blocking / required corrections:**
+1. **The no-silent-overwrite policy is not atomic or bidirectional.** `remember_memory` checks for a
+   file-backed row before an unguarded `ON CONFLICT (name) DO UPDATE`; a concurrent canonical ingest can
+   land between that check and upsert, allowing `remember_memory` to overwrite it. Separately, the
+   existing `ingest_memory_entry` RPC can later silently overwrite an `mcp/<slug>` entry with the same
+   name. Enforce the provenance collision policy at the unique-key write in **both** write paths, with
+   concurrency-safe serialization/conditional conflict handling, and test both directions. Distinct
+   `source_path` alone does not isolate identities while `name` remains globally unique.
+2. **`log_update` does not fully enforce “refuses secrets.”** Node scans `action` + `detail`, but not the
+   arbitrary `entity_type` string; SQL `log_activity` scans only `detail`. A service-role caller or MCP
+   caller can therefore store a secret-shaped value in `entity_type`. Scan/reject secret-bearing
+   `entity_type` in both layers and add coverage.
+3. **The claimed 4 KB detail bound is not a byte bound.** Node uses `JSON.stringify(...).length` and SQL
+   uses `length(p_detail::text)`, both character counts. Multibyte UTF-8 detail can exceed 4 KB while
+   passing. Use UTF-8 byte length in Node and SQL, and add a multibyte boundary test.
+
+**Post-remediation gate additions:** prove canonical→MCP and MCP→canonical collisions cannot silently
+overwrite, include a concurrent same-name collision test, reject a secret in `entity_type`, and reject
+multibyte detail over 4096 UTF-8 bytes. The previously proposed ACL, rollback/atomicity, valid commit,
+action/detail, cap, and zero-unintended-write checks remain required.
+
+**Verification repeated by Aegis:** `node mcp/test-remember.mjs` **60/0**; `node mcp/test-log.mjs`
+**31/0**; `node mcp/test-recall.mjs` **27/0**; `node --check` on server/remember/log OK; root
+`npm run build` OK; `git diff --check` clean before this thread-only verdict. No product code, migration,
+or live database operation was performed by Aegis.
