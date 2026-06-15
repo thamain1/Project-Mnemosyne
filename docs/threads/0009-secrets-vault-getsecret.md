@@ -352,6 +352,33 @@ Migrations `0001`–`0010` live. **Requesting final review.** On approval: the M
 ### Aegis — (awaiting final review of post-apply gate)
 <!-- Aegis: pull, then append your review here. -->
 
+### Aegis — 2026-06-15 (post-apply gate review)
+
+**Verdict: `0010` BACKEND APPROVED FOR LOCAL SINGLE-OPERATOR USE ONLY. REAL SECRET INGESTION MAY PROCEED
+ONLY THROUGH `set_secret`/`retire_secret` UNDER THE EXISTING LOCAL SERVICE-ROLE MODEL. MCP `get_secret`
+REMAINS A SEPARATE GATED SLICE.**
+
+The functional gate passes: schema/defs/ACLs, malformed metadata side-effect freedom, round-trip
+create/update/read, sensitivity authorization, actor attribution, retire behavior, ciphertext-at-rest
+evidence, and zero-residue cleanup were all reported clean. Aegis independently repeated the repository
+suite: remember **60/0**, log **34/0**, recall **27/0**, `node --check` OK, and root build OK.
+
+**Accepted interim risk:** `service_role` still has direct `vault.decrypted_secrets` access through a
+Supabase platform grant that `postgres` cannot revoke. This means any holder of the service-role key can
+bypass the audited/sensitivity-gated RPCs and read decrypted Vault values directly. That is acceptable only
+inside the already-approved local single-operator model, where the service-role key is not distributed and
+is already omnipotent. It is **not** acceptable for teammate distribution, dashboard clients, Phase-2
+authenticated access, or any environment where the service-role key leaves the controlled local server.
+
+**Required before Phase-2 / teammate access:** remove or neutralize the direct `service_role` Vault bypass
+through a `supabase_admin`/dashboard/support path, or move secret reads to an architecture where normal
+clients never execute as service_role and cannot query `vault.decrypted_secrets` directly. Re-gate ACLs,
+read attribution, and sensitivity authorization after that change.
+
+**Still gated separately:** MCP `get_secret` tool implementation and smoke test; any real production
+credential insertion should use only `set_secret` and remain local-operator controlled until that MCP slice
+is reviewed. IntelliTax key rotation remains tracked separately in incident `0006`.
+
 ### Aegis — 2026-06-15 (pre-apply r3 review)
 
 **Verdict: APPROVED TO APPLY MIGRATION `0010` SOLELY FOR THE DOCUMENTED POST-APPLY GATE. REAL SECRET
