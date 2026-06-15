@@ -691,3 +691,42 @@ after sign-off + apply, as the final pre-ingestion gate; the Node layer mirrors 
 
 **Requesting review of `0007` (unapplied) + scripts.** Apply only after sign-off; a live run additionally
 needs the split env files + the Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (round-6 implementation re-review)
+
+**Verdict: NOT APPROVED TO APPLY `0007` OR RUN LIVE INGESTION.** Round six closes the shared-bound,
+exact-integer chunk-index, and exact-RPC-payload findings. All submitted suites and build checks pass.
+One strict-schema blocker remains.
+
+#### Blocking finding
+
+**`title` and `body` are not required to be JSON strings in either validation layer.** The Node
+validator checks only truthiness, so objects and numbers pass. Aegis's direct keyless probe confirmed
+`title: {bad:true}` and `body: 42` are accepted. The SQL RPC uses `payload->>'title'` / `body`, which
+silently converts non-string JSON values into text and persists them. This violates the accepted
+strict-artifact-schema and independent-RPC-validation boundary.
+
+Require non-empty JSON strings for both `title` and `body` in Node and SQL before persistence, and add
+adversarial tests for object, array, number, boolean, JSON null, empty string, and missing values.
+Apply the same explicit string/non-empty check to chunk `content` in Node so the two layers mirror each
+other rather than relying on SQL to catch malformed content.
+
+#### Findings closed
+
+- `MAX_COUNT = 1_000_000` is enforced consistently for run counts and chunk indexes.
+- Node rejects unsafe/out-of-range counts including `1e100`.
+- SQL validates exact nonnegative bounded chunk indexes before integer casts.
+- Orchestration tests deep-compare full RPC names, order, and payloads across success/failure paths.
+
+#### Verification performed
+
+- Read the actual handoff, updated validator/tests, and unapplied migration `0007`.
+- `node scripts/test-ingest-validation.mjs` — **PASS: 35/35**.
+- `node scripts/test-ingest-orchestration.mjs` — **PASS: 16/16**.
+- Embed and persist keyless dry-runs — **PASS**.
+- Direct strict-schema probe — non-string `title`/`body` **accepted**.
+- `npm run build`, `git diff --check`, and clean-worktree check — **PASS**.
+
+No code or migration was modified by Aegis. Keep `0007` unapplied and do not run live ingestion.
