@@ -14,6 +14,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { createClient } from '@supabase/supabase-js'
 import { makeEmbedQuery, runRecall, MAX_K, MAX_QUERY_LEN, DEFAULT_K } from './lib/recall-core.mjs'
+import { makeEmbedDoc, runRemember, MAX_TITLE_LEN, MAX_BODY_LEN } from './lib/remember-core.mjs'
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
@@ -23,6 +24,7 @@ if (!GEMINI_KEY || !SUPABASE_URL || !SUPABASE_KEY) {
 }
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } })
 const embedQuery = makeEmbedQuery({ apiKey: GEMINI_KEY })
+const embedDoc = makeEmbedDoc({ apiKey: GEMINI_KEY })
 const rpc = (fn, args) => supabase.rpc(fn, args)
 
 const RECALL_TOOL = {
@@ -39,18 +41,43 @@ const RECALL_TOOL = {
   },
 }
 
+// WRITE tool — interim LOCAL single-operator only (server holds the service-role key). Embeds via Google,
+// so remember-core secret-scans + refuses secret-bearing content (incident 0006). Writes via the hardened
+// service-role-only ingest_memory_entry RPC.
+const REMEMBER_TOOL = {
+  name: 'remember',
+  description: 'Write a new memory into the 4ward shared brain. Embeds + stores the title/body under a slug derived from the title (or an explicit name). Refuses content containing secrets. Read-then-write; not for secrets.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string', maxLength: MAX_TITLE_LEN, description: 'Short title; also used as the entry summary.' },
+      body: { type: 'string', maxLength: MAX_BODY_LEN, description: 'The memory content (markdown). [[links]] are captured.' },
+      kind: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'Memory category.' },
+      name: { type: 'string', description: 'Optional explicit slug; defaults to the slugified title.' },
+    },
+    required: ['title', 'body', 'kind'],
+  },
+}
+
+const HANDLERS = {
+  recall: (args) => runRecall(args, { embedQuery, rpc }),
+  remember: (args) => runRemember(args, { embedDoc, rpc }),
+}
+
 const server = new Server({ name: '4ward-brain', version: '0.1.0' }, { capabilities: { tools: {} } })
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [RECALL_TOOL] }))
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [RECALL_TOOL, REMEMBER_TOOL] }))
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
-  if (req.params.name !== 'recall') return { isError: true, content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }] }
+  const handler = HANDLERS[req.params.name]
+  if (!handler) return { isError: true, content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }] }
   try {
-    const text = await runRecall(req.params.arguments ?? {}, { embedQuery, rpc })
+    const text = await handler(req.params.arguments ?? {})
     return { content: [{ type: 'text', text }] }
   } catch (e) {
-    return { isError: true, content: [{ type: 'text', text: `recall failed: ${e.message}` }] }
+    return { isError: true, content: [{ type: 'text', text: `${req.params.name} failed: ${e.message}` }] }
   }
 })
 
 const transport = new StdioServerTransport()
 await server.connect(transport)
-console.error('[4ward-brain] MCP server connected — tool: recall')
+console.error('[4ward-brain] MCP server connected — tools: recall, remember')

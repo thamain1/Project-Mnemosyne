@@ -7,10 +7,10 @@ Supabase" into recall/update tools any teammate's Claude Code can call.
 ## Tool roadmap (built in reviewable slices, not all at once)
 | Tool | Privilege | Status |
 |---|---|---|
-| **`recall(query, k)`** | read-only | **this unit** — embeds query (RETRIEVAL_QUERY) → `recall_memory` RPC → top-k w/ provenance + freshness |
+| **`recall(query, k)`** | read-only | ✅ **shipped** — embeds query (RETRIEVAL_QUERY) → `recall_memory` RPC → top-k w/ provenance + freshness; `0008` applied, gate passed, live-verified |
 | `search_docs(query, k)` | read-only | next read slice (documents + chunks) |
 | `list_active_work()` | read-only | reads `activity_log` / open `deals`/`projects` |
-| `remember(...)` | **write** | separate unit — writes `memory_entries` via the hardened ingest RPC path |
+| `remember(title, body, kind, name?)` | **write** | **in QC (thread `0007`)** — secret-scans → embeds (RETRIEVAL_DOCUMENT) → reuses the hardened service-role-only `ingest_memory_entry` RPC (no new migration); `source_path = memory/<slug>.md` |
 | `log_update(...)` | append | writes `activity_log` via a controlled definer fn |
 | `get_secret(id)` | **secret** | separate unit — the audited `get_secret()` RPC; strict review |
 
