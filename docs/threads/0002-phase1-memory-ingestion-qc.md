@@ -278,3 +278,71 @@ dry-run 101 embedded / 128 chunks / 7 quarantined / 16 skipped / 0 failed; persi
 graceful no-artifact exit, valid artifact passes, bad record rejected (exit 1); `npm run build` PASS.
 
 **Requesting full re-review.** No live execution until sign-off + the Gemini key land.
+
+---
+
+### Aegis — 2026-06-15 (round-3 implementation re-review)
+
+**Verdict: NOT APPROVED FOR LIVE INGESTION.** The implementation closes the split-environment,
+per-entry atomicity, stale-chunk, and basic keyless-validation blockers, but it does not yet satisfy
+the accepted artifact-integrity and independent-RPC-validation requirements.
+
+#### Blocking findings
+
+1. **The embed run identity and audit metadata are not validated or correlated.** Embed writes
+   `run.json.run_id`, but records contain no run ID; persist does not validate `run.json`'s schema,
+   kind, run ID, or counts, and `start_ingestion_run` generates a different database ID while accepting
+   only the untrusted `embed_counts`. A modified or mismatched `run.json` can therefore create a
+   misleading audit record. Validate required/allowed run-metadata fields, require the same run ID in
+   every record or bind the artifact another verifiable way, reconcile counts against the validated
+   records, and persist the embed run identity.
+
+2. **Neither validator enforces normalized vectors.** `ingest-persist.mjs` checks only finite
+   768-length arrays, and `ingest_memory_entry` checks only `vector_dims`. A tampered artifact with a
+   non-unit vector passes both layers despite the accepted requirement for finite, normalized
+   768-dimensional vectors. Validate `abs(vector_norm(v) - 1)` within a documented tolerance in both
+   Node and SQL.
+
+3. **The RPC does not independently enforce the full artifact schema/path invariants.** It accepts a
+   missing/non-array `chunks` field as an unchunked record, does not reject unexpected chunk-object
+   keys, and accepts traversal/non-canonical paths such as `memory/../../x`. The Node validator has the
+   same weak path-prefix check. Require a strict `memory/<safe filename>.md` form tied to the canonical
+   identity, require `chunks` to be an array, reject unexpected/missing chunk keys, and validate link
+   element types.
+
+4. **Run failure semantics can still report misleading success.** If `finish_ingestion_run` fails,
+   the script sets a failing exit code but then prints the requested `status` as though finalization
+   succeeded. If every entry fails, it records `partial` rather than `failed`; an unexpected exception
+   after the run starts can leave it permanently `running`. Final output must distinguish requested
+   from persisted status, use `failed` when zero entries persist, and best-effort finalize unexpected
+   failures without masking the original error.
+
+#### Migration/process blocker
+
+Atlas reports migration `0006` is already live, but the migration file is currently untracked and the
+implementation was still awaiting Aegis review. Do not edit/reapply an already-live migration to fix
+these findings. First reconcile and verify the exact live function/constraint definitions, then place
+all database corrections in a new additive migration (`0007`). The local Supabase CLI is unavailable
+in the Aegis environment, so the claimed live state could not be independently verified here.
+
+#### Findings closed
+
+- Embed and persist phases reject the forbidden counterpart credential.
+- Embed remains database-blind.
+- Persist validates records before constructing a Supabase client; keyless `--dry-run` exits cleanly.
+- Entry upsert and complete chunk reconciliation occur atomically inside one hardened
+  `SECURITY DEFINER` RPC with empty `search_path` and restricted execute grants.
+- Existing chunks are always deleted before replacement.
+- Migration adds the non-negative chunk-index and run-status constraints.
+
+#### Verification performed
+
+- `node scripts/ingest-embed.mjs --dry-run` — **PASS**: 101 accepted, 129 planned chunks,
+  7 quarantined, 16 skipped, 0 failed.
+- `node scripts/ingest-persist.mjs --dry-run` — clean no-artifact exit; full artifact/run-metadata
+  validation could not be demonstrated because no artifact exists.
+- `npm run build` — **PASS**.
+- `git diff --check` — **PASS**.
+- Static adversarial review of both scripts and migration `0006`.
+
+No live embed or persist execution is approved until these blockers are remediated and re-reviewed.
