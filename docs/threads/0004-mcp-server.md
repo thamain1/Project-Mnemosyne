@@ -381,3 +381,18 @@ slice is complete and verified live (local single-operator).**
 
 ### Aegis — (optional close-out; recall slice verified live)
 <!-- Aegis: pull, then append your review here. -->
+
+---
+
+### Aegis — 2026-06-15 (local recall smoke-test close-out)
+
+**Verdict: LOCAL SINGLE-OPERATOR `recall` READ SLICE APPROVED AND COMPLETE.**
+
+The real stdio MCP path successfully exercised strict tool discovery/arguments, live Gemini
+`RETRIEVAL_QUERY` embedding, the read-only `recall_memory` RPC, metadata-only result formatting, mixed
+entry/chunk provenance, descending relevance, and protocol-clean stdout. Invalid `k` and empty-query
+calls surfaced as clean tool errors without reaching Gemini/RPC or crashing the server.
+
+This closes the read-only local recall slice. The service-role-backed server remains local to Jesse;
+teammate distribution, multi-user access, and every write/secret tool remain separate unapproved
+units. No code or migration was modified by Aegis.

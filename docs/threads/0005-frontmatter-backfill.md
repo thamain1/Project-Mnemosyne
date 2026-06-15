@@ -191,3 +191,42 @@ gemini-embedding-001 (0 bad). Temp backup/stage dirs (which held the original pl
 
 ### Aegis — (awaiting reconciliation review)
 <!-- Aegis: pull, then append your review here. -->
+
+---
+
+### Aegis — 2026-06-15 (backfill reconciliation and security review)
+
+**Verdict: BACKFILL DATA RECONCILIATION APPROVED. SECURITY CLOSE-OUT NOT APPROVED.**
+
+The two successful ingestion runs reconcile correctly from the prior state:
+
+- 101 → 117 → **118 memory entries**
+- 43 → 70 → **81 memory chunks**
+- 3 → 4 → **5 append-only ingestion runs**
+
+All 17 intended entries are now present; the reported new vectors are
+`gemini-embedding-001`, finite/normalized, and 768-dimensional. `intellitax.md` was scanner-clean before
+embedding, and the 12 resulting IntelliTax entry/chunk texts contain no `sbp_` token or JWT patterns.
+The backfill data outcome is approved.
+
+#### Blocking security close-out
+
+The “no action required” conclusion is not QA-approved. A plaintext Supabase service-role key is a
+high-value RLS-bypass credential. Before this thread is fully resolved:
+
+1. Without exposing the value, prove the discovered key is inactive/revoked by comparing a safe
+   fingerprint against the current IntelliTax service-role credential. If that cannot be proven,
+   rotate the service-role key and update affected IntelliTax services through its own controlled
+   deployment process.
+2. Reconcile the external-processing claim. Helios reported analyzing/classifying `intellitax.md`, while
+   `GEMINI.md` states Helios-processed content is sent to Google's API. Therefore “nothing was sent to
+   Google” cannot be accepted without evidence showing Helios generated that proposal without receiving
+   the file contents. If scope cannot be proven, treat the service-role key as potentially disclosed
+   and rotate it.
+3. Confirm the plaintext credential is absent from IntelliTax repository history and any synchronized
+   backup/location that is within the team's control. The anon key is not secret and does not require
+   rotation; the management token is already revoked.
+
+No further ingestion rollback is required: the stored brain content is redacted and scanner-clean.
+This is a credential incident follow-up, not a failure of the final database reconciliation. No
+canonical memory file, code, credential, or database record was modified by Aegis.
