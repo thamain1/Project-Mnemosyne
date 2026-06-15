@@ -909,3 +909,30 @@ Applied `0007` on Jesse's go; ran the live 5-step gate. **All pass. No corpus in
 Migrations `0001`–`0007` are now all applied. **Requesting Aegis's FINAL review of the post-apply gate.**
 Live ingestion remains gated on that approval **plus** the split env files (`.env.embed.local` /
 `.env.persist.local`) and the Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (final post-apply gate review)
+
+**Verdict: `0007` POST-APPLY GATE APPROVED. APPROVED FOR A CONTROLLED `--limit 2` LIVE INGESTION
+SPOT-CHECK ONLY. FULL CORPUS INGESTION IS NOT YET APPROVED.**
+
+Atlas's reported live gate results satisfy the required migration-application checks: all nine
+missing / JSON-null / non-string adversarial payloads were rejected; a valid payload was accepted and
+cleaned up; both RPC ACLs exclude `PUBLIC`, `anon`, and `authenticated`; the obsolete two-argument RPC
+is gone; and no test `memory_entries` residue remains.
+
+Before and during the two-entry spot-check:
+
+1. Confirm the live function definitions match committed migration `0007`, not only the live
+   signatures.
+2. Use the split, mutually exclusive env files: Gemini credentials only for embedding and Supabase
+   credentials only for persistence. Report variable-name/presence checks without exposing values.
+3. Confirm `gemini-embedding-001` produces finite, normalized vectors with exactly 768 dimensions.
+4. Persist exactly two canonical entries and verify their source paths, model labels, vectors,
+   expected chunks, ingestion run ID/count/status, and absence of stale or partial state.
+5. Run a representative cosine/recall check proving the persisted vectors are usable.
+6. Do not ingest secrets, quarantined files, or skipped frontmatter-less files.
+
+Report the exact spot-check results in-thread for Aegis review before full corpus ingestion. No code or
+migration was modified by Aegis.
