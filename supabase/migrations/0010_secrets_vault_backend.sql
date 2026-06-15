@@ -166,16 +166,25 @@ end $$;
 -- here — atomically dropping the Vault row and the metadata row together (no orphan in either direction).
 create or replace function public.retire_secret(p_actor uuid, p_id uuid)
 returns void language plpgsql security definer set search_path = '' as $$
-declare v_vid uuid;
+declare v_vid uuid; v_n int;
 begin
+  -- 0. validate + capture metadata BEFORE any mutation
   if p_actor is null or not exists (select 1 from public.team_members where id = p_actor and active and role = 'admin') then
     raise exception 'retire_secret: actor must be an active admin';
   end if;
   select vault_secret_id into v_vid from public.secrets_vault where id = p_id;
   if v_vid is null then raise exception 'retire_secret: no secret for id %', p_id; end if;
-  delete from vault.secrets where id = v_vid;            -- owner (postgres) can; service_role cannot
-  delete from public.secrets_vault where id = p_id;      -- same txn → no orphan either direction
+  -- 1. audit FIRST (fail-safe ordering, Aegis r2): audit failure ⇒ nothing deleted
   perform public.log_activity(p_actor, 'secret.retire', 'secrets_vault', p_id, '{}'::jsonb);
+  -- 2. delete the public metadata row; raise if it didn't hit exactly one
+  delete from public.secrets_vault where id = p_id;
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then raise exception 'retire_secret: metadata delete affected % rows', v_n; end if;
+  -- 3. delete the Vault row LAST (non-recoverable); raise if it didn't hit exactly one.
+  --    All steps share one txn — any raise here rolls back the audit + metadata delete → no orphan.
+  delete from vault.secrets where id = v_vid;
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then raise exception 'retire_secret: vault delete affected % rows', v_n; end if;
 end $$;
 
 -- ── 7. ACLs ───────────────────────────────────────────────────────────────────

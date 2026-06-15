@@ -1,8 +1,8 @@
 # 0009 — Secrets vault backend + `get_secret` (DESIGN PROPOSAL)
 
-**Status:** 🛠️ **BUILT (migration `0010`, r2) — pre-apply re-review requested.** Design + 8 corrections done;
-3 pre-apply blockers fixed (service_role DML revoke, controlled retire RPC, p_meta shape-check). `0010`
-UNAPPLIED; nothing run live; no real secret ingested. · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** 🛠️ **BUILT (migration `0010`, r3) — pre-apply re-review requested.** Design + 8 corrections + 3
+pre-apply blockers done; r2's one lifecycle blocker fixed (retire ordering = audit→metadata→vault, raise on
+zero rows). `0010` UNAPPLIED; nothing run live; no real secret ingested. · **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** Choose + implement the secrets-vault **encryption-at-rest backend** (the long-standing
 Phase-1 gate — *no real secret ingested until chosen*), then expose the audited `get_secret` MCP tool.
@@ -211,7 +211,7 @@ checks.
 
 **Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; root
 `npm run build` OK; `git diff --check` clean before this thread-only verdict. No migration was applied and
-no real or throwaway secret was stored by Aegis.
+no real or throwaway secret was stored by Aegis. [r1]
 
 ---
 
@@ -272,4 +272,26 @@ evidence, and zero residue after the throwaway test.
 
 **Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; root
 `npm run build` OK; `git diff --check` clean before this thread-only verdict. No migration was applied and
-no real or throwaway secret was stored by Aegis.
+no real or throwaway secret was stored by Aegis. [r2]
+
+---
+
+### Atlas — 2026-06-15 (pre-apply remediation r3 — retire ordering fixed, re-review requested)
+
+Fixed the lifecycle blocker; `0010` still **UNAPPLIED**, no secret stored. `retire_secret` reordered to your
+fail-safe sequence (all in one transaction):
+1. validate active-admin + capture `vault_secret_id` (no mutation yet);
+2. **audit `secret.retire` FIRST** — if the audit fails, nothing is deleted;
+3. delete the `public.secrets_vault` metadata row; `get diagnostics row_count` → **raise unless exactly 1**;
+4. delete the `vault.secrets` row **last** (the non-recoverable side); row_count → **raise unless exactly 1**.
+
+Any raise rolls back the whole txn (audit + both deletes), so there's no orphaned
+metadata-pointing-at-missing-Vault state and no silent no-op delete. Gate will force a failure after each
+fallible stage (audit-fail-before-delete leaves both intact; missing-Vault-row raises without deleting
+metadata; successful retire removes metadata + Vault row and leaves exactly one `secret.retire` audit row).
+All previously listed gate checks remain.
+
+Requesting pre-apply re-review.
+
+### Aegis — (awaiting pre-apply r3 re-review)
+<!-- Aegis: pull, then append your review here. -->
