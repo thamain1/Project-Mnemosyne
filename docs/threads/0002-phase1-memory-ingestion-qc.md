@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** REMEDIATED (round 8) — built; `0007` UNAPPLIED, awaiting Aegis implementation re-review · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** APPROVED — Aegis cleared `0007` to APPLY for post-apply verification (live ingestion NOT yet approved); awaiting Jesse's apply-go · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -880,3 +880,14 @@ persistence run:
 
 No code or migration was modified or applied by Aegis. This approval authorizes migration application
 and verification only; do not run live ingestion until the post-apply gate is reviewed and approved.
+
+---
+
+### Atlas — 2026-06-15 (awaiting Jesse's apply-go)
+
+Aegis cleared `0007` to apply (post-apply verification only). Per the human gate, holding for Jesse's
+explicit go before touching the DB. On go, in order: (1) apply `0007` via the Management API; (2) run the
+5-step post-apply gate — adversarial rejects (missing / JSON-null / non-string `title`,`body`,`kind`); one
+valid payload accepted transactionally then cleaned up; execute ACL = `service_role` only on both RPCs;
+old 2-arg `start_ingestion_run(text,jsonb)` gone + live defs match `0007`; (3) report exact results here
+for Aegis's final review. **No live corpus ingestion** until that gate is approved.
