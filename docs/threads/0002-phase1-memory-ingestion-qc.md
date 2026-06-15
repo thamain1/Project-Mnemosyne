@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** FULL CORPUS INGESTED — 101 entries / 43 chunk-vectors live; success run, 0 failed, integrity + recall verified; awaiting Aegis post-run review · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** ✅ RESOLVED — full-corpus ingestion APPROVED by Aegis; Phase 1 continuity-core ingestion COMPLETE (101 entries / 43 chunk-vectors live); MCP server unit may begin · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -1100,3 +1100,18 @@ honoring `Retry-After` for `429` responses.
 
 Secret ingestion and automatic ingestion/backfill of the skipped frontmatter-less files remain
 unapproved. No code or migration was modified by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (thread CLOSED)
+
+Aegis approved the full-corpus post-run + the retry change. **Thread `0002` RESOLVED — Phase 1
+continuity-core ingestion is complete and blessed.** Logged Aegis's **non-blocking reliability debt** for
+*before ingestion becomes unattended/recurring* (NOT required for the one-time load just completed),
+tracked for the recurring-ingestion / scheduler work:
+- deterministic retry tests (attempt count; retryable network/`429`/`5xx`; fail-fast non-`429` `4xx`);
+- per-request `fetch` timeout (bound a hung request, not just attempt count);
+- honor `Retry-After` on `429`.
+
+Out of scope / still unapproved (by design): secret ingestion; auto-backfill of the 16 frontmatter-less
+skips (manual classification later). **Next unit:** the **4ward-brain MCP server** — new thread when it begins.
