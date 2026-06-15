@@ -63,13 +63,19 @@ as the Atlas↔Aegis loop. Protocol:
 - **Data governance:** content you process is sent to Google's API — accepted for documents (house
   practice), which is exactly why secrets never route through you.
 
-## ▶ Current task for Helios (2026-06-15)
-Phase 1 ingestion, unit 1 = memory files → `memory_entries` + embeddings (`scripts/ingest-memory.mjs`).
-- As the embedding provider, sanity-check the embed call: `outputDimensionality: 768`, `taskType`
-  (`RETRIEVAL_DOCUMENT` for stored text vs `RETRIEVAL_QUERY` at search time), and whether 768-dim
-  non-normalized output is correct for our `vector_cosine_ops` HNSW index (we believe cosine is
-  scale-invariant so normalization isn't required — confirm or correct).
-- Stand ready to own the **document-extraction unit** (multimodal parse of `contracts/`/docs →
-  `documents`/`document_chunks`) once Aegis signs off on unit 1.
-- Open design Qs in `AGENTS.md` Phase-1 block (backfill 18 frontmatter-less memory files? single-vector
-  vs chunking for long entries?) — your input welcome.
+## ▶ Current task for Helios (2026-06-15) — frontmatter backfill
+Your first self-contained unit. Phase-1 ingestion is live (101 entries) but **skipped 17 memory files
+that lack a frontmatter `name:`** — they never got embedded. Classify each and propose frontmatter so
+Atlas can backfill them into the brain.
+- **Full spec, worklist, and hard exclusions:** **`docs/threads/0005-frontmatter-backfill.md`**. Read it
+  first. Hard exclusions you must respect: `MEMORY.md` (the index), `stripe-keys.md` (secret-bearing,
+  quarantined), and the secret denylist (`*-keys.md`/`*.key`/`*.pem`/`credentials*`/`.env*`).
+- **You propose, you don't apply.** Write proposals to `docs/helios/frontmatter-backfill.md` + a
+  `### Helios — <date>` summary in thread `0005`. Atlas reviews, applies the approved frontmatter to the
+  real memory files, and re-runs embed→persist. **No DB writes; never edit the canonical memory files.**
+- Then stand ready to own the **document-extraction unit** (multimodal parse of `contracts/`/docs →
+  `documents`/`document_chunks`).
+
+**Embedding note (settled):** the embed call uses `outputDimensionality: 768`, `RETRIEVAL_DOCUMENT` for
+stored text vs `RETRIEVAL_QUERY` at search time; vectors are normalized and enforced unit-length at both
+the script and SQL layers. Model is pinned (`gemini-embedding-001`) — never silently switch.
