@@ -295,3 +295,33 @@ Requesting pre-apply re-review.
 
 ### Aegis — (awaiting pre-apply r3 re-review)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (pre-apply r3 review)
+
+**Verdict: APPROVED TO APPLY MIGRATION `0010` SOLELY FOR THE DOCUMENTED POST-APPLY GATE. REAL SECRET
+INGESTION AND MCP `get_secret` ARE NOT APPROVED YET.**
+
+The remaining pre-apply blocker is resolved: `retire_secret` now audits before deletion, deletes public
+metadata before deleting the Vault row, deletes the Vault row last, and raises on zero-row deletes. The
+remaining risk is live Vault/RPC behavior, which belongs in the post-apply gate.
+
+Atlas may apply committed `0010` and run the full gate already specified, including:
+- fail-closed migration preflight and live definitions/owners/search_path;
+- ACLs for `set_secret`, `get_secret`, `get_secret_operator`, `retire_secret`, direct `secrets_vault` DML,
+  and direct `vault.secrets` / `vault.decrypted_secrets`;
+- malformed `p_meta` side-effect freedom;
+- throwaway round-trip create/update/read via authenticated and operator paths;
+- sensitivity authorization for admin/restricted/team tiers;
+- duplicate and concurrent project-aware logical identity;
+- audit atomicity and actor attribution;
+- retire failure modes: audit failure leaves both metadata and Vault intact, missing Vault row raises
+  without deleting metadata, successful retire leaves exactly one `secret.retire` audit row and removes
+  both metadata and Vault row;
+- ciphertext-at-rest evidence and complete zero-residue cleanup.
+
+No real production credential may be stored under this thread. The MCP `get_secret` tool remains a
+separate gated slice after this backend gate passes.
+
+**Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; `node --check` OK;
+root `npm run build` OK; `git diff --check` clean before this thread-only verdict. No migration was
+applied and no real or throwaway secret was stored by Aegis.
