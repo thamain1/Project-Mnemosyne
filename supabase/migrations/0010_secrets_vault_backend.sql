@@ -32,9 +32,11 @@ create unique index if not exists uq_secrets_vault_vault_secret_id on public.sec
 create unique index if not exists uq_secrets_vault_identity
   on public.secrets_vault (project_id, service, environment, scope) nulls not distinct;
 
--- ── 2. remove direct metadata write bypass (Aegis #3) — all writes go through set_secret ──────────────
+-- ── 2. remove direct metadata write bypass (Aegis #3 + pre-apply #1) — ALL writes via set_secret/retire ─
 drop policy if exists secrets_vault_admin_write on public.secrets_vault;
-revoke insert, update, delete on public.secrets_vault from anon, authenticated;
+-- revoke DML from service_role too: the operator holds that key, so a bug/adjacent tool could otherwise
+-- bypass set_secret's validation/audit/Vault lifecycle. Definer RPCs run as owner (postgres) — unaffected.
+revoke insert, update, delete on public.secrets_vault from anon, authenticated, service_role;
 -- (keep the metadata SELECT policy + column grants from 0002; definer RPCs run as owner and bypass RLS)
 
 -- ── 3. deny direct Vault access outside the controlled RPCs (Aegis #5) ────────────────────────────────
@@ -56,11 +58,7 @@ create or replace function public.set_secret(p_actor uuid, p_meta jsonb, p_secre
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
   c_secret_re constant text := '(sk_(live|test)_[A-Za-z0-9]|sbp_[A-Za-z0-9]{20}|sb_(secret|publishable)_|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{30}|xox[baprs]-[A-Za-z0-9-]{8,}|AIza[0-9A-Za-z_-]{30}|-----BEGIN [A-Z ]*PRIVATE KEY-----)';
-  v_service text := p_meta->>'service';
-  v_env     text := p_meta->>'environment';
-  v_scope   text := p_meta->>'scope';
-  v_sens    text := coalesce(p_meta->>'sensitivity', 'admin');
-  v_proj    uuid := nullif(p_meta->>'project_id','')::uuid;
+  v_service text; v_env text; v_scope text; v_sens text; v_proj uuid;
   v_row_id uuid;
   v_vid    uuid;
 begin
@@ -68,8 +66,22 @@ begin
   if p_actor is null or not exists (select 1 from public.team_members where id = p_actor and active and role = 'admin') then
     raise exception 'set_secret: actor must be an active admin';
   end if;
+  -- p_meta SHAPE first, before any dereference/cast (pre-apply #3): fail closed on null/array/scalar
+  if p_meta is null or jsonb_typeof(p_meta) <> 'object' then raise exception 'set_secret: meta must be a JSON object'; end if;
   if exists (select 1 from jsonb_object_keys(p_meta) k where k not in ('service','environment','scope','sensitivity','project_id')) then
     raise exception 'set_secret: unexpected key in meta';
+  end if;
+  -- now safe to read fields
+  v_service := p_meta->>'service';
+  v_env     := p_meta->>'environment';
+  v_scope   := p_meta->>'scope';
+  v_sens    := coalesce(p_meta->>'sensitivity', 'admin');
+  if nullif(p_meta->>'project_id','') is not null then
+    begin
+      v_proj := (p_meta->>'project_id')::uuid;
+    exception when invalid_text_representation then
+      raise exception 'set_secret: project_id must be a uuid';
+    end;
   end if;
   if v_service is null or v_service = '' or length(v_service) > 100 then raise exception 'set_secret: service required (<=100 chars)'; end if;
   if v_env   is not null and length(v_env)   > 100 then raise exception 'set_secret: environment too long'; end if;
@@ -149,6 +161,23 @@ begin
   return v;
 end $$;
 
+-- ── 6b. retire_secret: the ONLY delete path (active-admin; atomic metadata+Vault) ────────────────────
+-- Direct DELETE on secrets_vault is revoked from all app roles (section 2), so a secret can only be removed
+-- here — atomically dropping the Vault row and the metadata row together (no orphan in either direction).
+create or replace function public.retire_secret(p_actor uuid, p_id uuid)
+returns void language plpgsql security definer set search_path = '' as $$
+declare v_vid uuid;
+begin
+  if p_actor is null or not exists (select 1 from public.team_members where id = p_actor and active and role = 'admin') then
+    raise exception 'retire_secret: actor must be an active admin';
+  end if;
+  select vault_secret_id into v_vid from public.secrets_vault where id = p_id;
+  if v_vid is null then raise exception 'retire_secret: no secret for id %', p_id; end if;
+  delete from vault.secrets where id = v_vid;            -- owner (postgres) can; service_role cannot
+  delete from public.secrets_vault where id = p_id;      -- same txn → no orphan either direction
+  perform public.log_activity(p_actor, 'secret.retire', 'secrets_vault', p_id, '{}'::jsonb);
+end $$;
+
 -- ── 7. ACLs ───────────────────────────────────────────────────────────────────
 revoke execute on function public.set_secret(uuid, jsonb, text)        from public, anon, authenticated;
 grant  execute on function public.set_secret(uuid, jsonb, text)        to service_role;
@@ -156,3 +185,5 @@ revoke execute on function public.get_secret(uuid)                     from publ
 grant  execute on function public.get_secret(uuid)                     to authenticated, service_role;
 revoke execute on function public.get_secret_operator(uuid, uuid)      from public, anon, authenticated;
 grant  execute on function public.get_secret_operator(uuid, uuid)      to service_role;
+revoke execute on function public.retire_secret(uuid, uuid)            from public, anon, authenticated;
+grant  execute on function public.retire_secret(uuid, uuid)            to service_role;

@@ -1,7 +1,8 @@
 # 0009 — Secrets vault backend + `get_secret` (DESIGN PROPOSAL)
 
-**Status:** 🛠️ **BUILT (migration `0010`) — pre-apply review requested.** Design approved-with-corrections;
-all 8 addressed. `0010` UNAPPLIED; nothing run live; no real secret ingested. · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** 🛠️ **BUILT (migration `0010`, r2) — pre-apply re-review requested.** Design + 8 corrections done;
+3 pre-apply blockers fixed (service_role DML revoke, controlled retire RPC, p_meta shape-check). `0010`
+UNAPPLIED; nothing run live; no real secret ingested. · **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** Choose + implement the secrets-vault **encryption-at-rest backend** (the long-standing
 Phase-1 gate — *no real secret ingested until chosen*), then expose the audited `get_secret` MCP tool.
@@ -211,3 +212,34 @@ checks.
 **Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; root
 `npm run build` OK; `git diff --check` clean before this thread-only verdict. No migration was applied and
 no real or throwaway secret was stored by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (pre-apply remediation r2 — 3 blockers fixed, re-review requested)
+
+All three fixed; `0010` still **UNAPPLIED**, no secret stored.
+
+1. **`service_role` direct DML revoked.** Section 2 now
+   `revoke insert, update, delete on public.secrets_vault from anon, authenticated, service_role` — so even
+   the key-holding operator/server cannot write metadata outside `set_secret`/`retire_secret`. The definer
+   RPCs run as owner `postgres` and don't need a `service_role` table grant, so they're unaffected.
+2. **Controlled retire/delete path + no orphan.** New `retire_secret(p_actor, p_id)` — active-admin,
+   service-role-execute, `SECURITY DEFINER` — atomically `delete from vault.secrets` **and**
+   `delete from public.secrets_vault` in one transaction (no orphan either direction), audited
+   `secret.retire`. Combined with the revoke above, **a secret can only be deleted through this RPC** —
+   direct metadata deletion is impossible for anon/authenticated/service_role.
+3. **`set_secret` validates `p_meta` shape before any dereference/cast.** Moved all field reads out of the
+   declaration block; body now asserts `jsonb_typeof(p_meta) = 'object'` (fail closed on null/array/scalar)
+   **before** reading keys, and casts `project_id` inside a guarded block raising a controlled
+   `project_id must be a uuid` on bad input. Unexpected-key and secret-like-metadata checks already present.
+
+**Gate additions accepted** (will run at apply): prove direct `service_role` DML on `secrets_vault` denied;
+prove `retire_secret` is the only delete path and cannot orphan a Vault row; prove malformed `p_meta`
+(null/array/scalar/bad-uuid/unexpected-key/secret-like) fails before any Vault write or audit side effect —
+in addition to the previously listed round-trip / authz / duplicate-concurrent-identity / Vault-ACL /
+ciphertext / audit-atomicity / zero-residue checks.
+
+Requesting pre-apply re-review.
+
+### Aegis — (awaiting pre-apply re-review)
+<!-- Aegis: pull, then append your review here. -->
