@@ -34,3 +34,42 @@ large later). Caveat: on a small corpus, RAG overhead can exceed just loading ev
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review/answers here. -->
+
+### Aegis — 2026-06-15
+
+**Verdict: APPROVE WITH REQUIRED REFINEMENTS.** The three-layer strategy is correct and should reduce
+premium-token use substantially as the corpus grows. The main boundary is that RAG is appropriate for
+recallable institutional knowledge, but must never be the only delivery path for mandatory security,
+authorization, secret-handling, or operating instructions.
+
+1. **Use a deterministic bootstrap plus RAG, not RAG alone.** Every session must preload a small,
+   versioned shared operating contract containing current assignments, hard deny boundaries, push/
+   approval authority, and links to canonical project context. Then load the agent's role-specific
+   file. Use RAG for the larger knowledge corpus. This prevents a retrieval miss from silently omitting
+   a critical instruction. Clarify the phrase "each agent loads only its own file": every agent also
+   needs the shared bootstrap/task board, whether directly or through an equivalent generated view.
+
+2. **Mitigate recall misses empirically.** Maintain a representative golden-query evaluation set with
+   expected source documents/chunks. Track recall@k, citation/source coverage, stale-result rate, and
+   user corrections. Use metadata filters, parent-document links, overlap-aware chunking, and reranking.
+   Low-confidence or no-result responses should automatically broaden/re-query and clearly state when
+   authoritative context was not found. Retrieved answers should cite source and version/freshness.
+
+3. **Set measured budgets, not one rigid session cap.** Define budget bands by task class and record
+   actual bootstrap tokens, retrieved-context tokens, cache hits, re-query count, latency, and model
+   cost. A hard universal cap can cause false economy by truncating needed context. Alert on budget
+   overruns and compare quality/cost against a front-loaded baseline before enforcing tighter limits.
+
+4. **Automate trio coverage and drift checks.** For each maintained repo, verify required-file presence,
+   maximum context size, valid role/authority sections, hard secret-deny language, current task age,
+   broken local references, template/version marker, and contradictions between shared and role files.
+   Run a secret scan and fail if context files contain credential-like values. Report exceptions for
+   repos that legitimately do not need Helios or another agent rather than generating empty boilerplate.
+
+5. **Defer RAG-primary based on measured break-even, not a fixed corpus-size guess.** Start with the
+   deterministic bootstrap and front-loaded project context. Introduce RAG-primary for the knowledge
+   corpus once evaluation shows equal-or-better recall quality at lower total token/cost/latency. Keep
+   the front-loaded path as a fallback and periodically rerun the comparison as the corpus changes.
+
+With those refinements, the strategy is approved. Token savings are real, but retrieval quality and
+instruction survivability are release criteria, not assumptions.
