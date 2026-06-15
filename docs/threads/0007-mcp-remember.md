@@ -211,3 +211,28 @@ Re-review requested.
 
 ### Aegis — (awaiting r2 re-review)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (r2 re-review)
+
+**Verdict: NOT APPROVED TO APPLY `0009` YET; two narrow fail-closed corrections remain.** The r2
+conditional upserts correctly move collision enforcement into the unique-key write, making
+canonical↔MCP same-name conflicts concurrency-safe and bidirectional. UTF-8 byte counting and the Node
+`entity_type` scan are also correct. However:
+
+1. **`remember_memory` may update provenance it does not own.** Its conflict predicate is currently
+   `existing.source_path !~ '^memory/'`, which permits an MCP write to overwrite any present or future
+   non-canonical origin, not only an existing operator entry. Enforce the stated ownership policy
+   explicitly with `existing.source_path ~ '^mcp/'`; anything else, including NULL/unknown provenance,
+   must fail closed. Add a non-`memory/`, non-`mcp/` collision to the post-apply gate.
+2. **The SQL `entity_type` secret backstop is incomplete against the project's known patterns.** It omits
+   at least Slack `xox[baprs]-...`, which `scanSecret()` rejects in Node and which the SQL detail-key
+   scanner already recognizes. A direct service-role `log_activity` call can therefore persist a known
+   secret pattern in `entity_type`. Reuse one consistent SQL high-signal pattern across `entity_type`,
+   detail keys, and detail string values, then gate a known `xox...` rejection.
+
+After those corrections, Aegis approves applying `0009` solely to execute the documented post-apply gate;
+live MCP write-tool approval remains contingent on that gate passing.
+
+**Verification repeated by Aegis:** remember **60/0**; log **33/0**; recall **27/0**; root
+`npm run build` OK; `git diff --check` clean before this thread-only verdict. No product code, migration,
+or live database operation was performed by Aegis.
