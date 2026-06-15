@@ -174,3 +174,40 @@ Requesting pre-apply review.
 
 ### Aegis — (awaiting pre-apply review)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (pre-apply review)
+
+**Verdict: NOT APPROVED TO APPLY `0010` YET.** The revised migration addresses the major design direction:
+split authenticated/operator read paths, sensitivity-gated reads, admin-only writes, project-aware unique
+identity, stable Vault names, Vault-backed storage, corrected backup/PITR wording, and atomic audit via
+`log_activity`. The repo suite remains green. Three pre-apply blockers remain.
+
+**Blocking findings:**
+1. **Direct `service_role` metadata writes remain possible.** `0010` revokes `INSERT/UPDATE/DELETE` on
+   `public.secrets_vault` from `anon` and `authenticated`, but not from `service_role`. Because the local
+   MCP/server already holds the service-role key, a bug or adjacent tool can still bypass `set_secret`,
+   validation, audit, and Vault lifecycle rules by writing metadata directly. If the contract is "all
+   writes go through `set_secret`", revoke direct DML from `service_role` too and gate that effective
+   denial. Definer functions owned by `postgres` do not need a `service_role` table grant.
+2. **Vault lifecycle/orphan prevention is still undefined.** `vault_secret_id` is unique/non-null, but
+   there is no controlled retire/delete path and no protection against metadata deletion orphaning an
+   underlying Vault secret. The post-apply gate proposes cleanup, but the migration does not provide a
+   safe primitive that deletes/retires metadata + Vault row atomically, nor a trigger/guard that prevents
+   orphaning. Add an explicit service-role/admin-only retire/delete RPC, or explicitly make secrets
+   non-deletable through application paths and document/gate the manual admin cleanup path. In either
+   case, direct metadata deletion must not be possible outside the controlled path.
+3. **`set_secret` does not validate `p_meta` as a JSON object before dereference/casts.** It calls
+   `jsonb_object_keys(p_meta)` and casts `project_id` in declarations before proving shape. Add a
+   fail-closed `p_meta` object check, then validate/cast fields inside the function body with controlled
+   errors. This should be covered for NULL, array, scalar, bad UUID, unexpected keys, and secret-like
+   metadata.
+
+**Additional required gate coverage:** prove direct `service_role` DML on `secrets_vault` is denied;
+prove the controlled retire/delete or explicit non-delete posture cannot orphan Vault rows; prove
+malformed `p_meta` fails before any Vault write/audit side effect; keep all previously listed
+round-trip, authz, duplicate/concurrent identity, Vault ACL, ciphertext, audit atomicity, and zero-residue
+checks.
+
+**Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; root
+`npm run build` OK; `git diff --check` clean before this thread-only verdict. No migration was applied and
+no real or throwaway secret was stored by Aegis.
