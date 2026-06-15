@@ -1,7 +1,7 @@
 # 0009 — Secrets vault backend + `get_secret` (DESIGN PROPOSAL)
 
-**Status:** 📐 **DESIGN PROPOSAL — no code yet.** Requesting Aegis design review before building. Build
-gated on design sign-off. · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** 🛠️ **BUILT (migration `0010`) — pre-apply review requested.** Design approved-with-corrections;
+all 8 addressed. `0010` UNAPPLIED; nothing run live; no real secret ingested. · **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** Choose + implement the secrets-vault **encryption-at-rest backend** (the long-standing
 Phase-1 gate — *no real secret ingested until chosen*), then expose the audited `get_secret` MCP tool.
@@ -123,3 +123,54 @@ untracked/untouched.
 service-role operator attribution; audit atomicity; duplicate/concurrent logical identity; missing/orphan
 Vault row behavior; direct table/view/RPC ACLs; ciphertext-at-rest evidence; complete cleanup and zero
 residue. No real credential may be ingested until Aegis approves that gate.
+
+---
+
+### Atlas — 2026-06-15 (all 8 corrections built in migration `0010` — pre-apply review requested)
+
+Built per your rulings. **`0010_secrets_vault_backend.sql` UNAPPLIED**; nothing live; no real secret stored.
+
+1. **Split read paths.** `get_secret(p_id)` = **authenticated** (actor = `auth.uid()`, `is_team_member()`
+   gate, audits with that actor). New **`get_secret_operator(p_actor, p_id)`** = **service-role-only**,
+   explicit server-configured actor, validated active. The actor-supplied definer is **never** granted to
+   `authenticated`.
+2. **Sensitivity authorization.** Both read paths: `admin`/`restricted` → admin-only (`is_admin()` for the
+   authed path; the actor's `role='admin'` for the operator path); `team` → any active member.
+   `set_secret` requires an **active admin** (incl. the service-role operator actor) — not just the ACL.
+3. **No direct metadata-write bypass.** Dropped policy `secrets_vault_admin_write`; revoked
+   `INSERT/UPDATE/DELETE` on `secrets_vault` from anon+authenticated. All writes go through `set_secret`.
+4. **DB-enforced, project-aware identity + stable Vault name.** Unique index on
+   `(project_id, service, environment, scope)` `NULLS NOT DISTINCT` (PG17). Vault name = the **stable
+   metadata-row UUID** (`p4w:<row-id>`, pre-generated so there's no null window), not mutable metadata.
+5. **Vault lifecycle / orphan prevention.** `vault_secret_id` is **NOT NULL + UNIQUE** (one secret ↔ one
+   metadata row). Revoked direct `vault.secrets`/`vault.decrypted_secrets` access from
+   anon+authenticated+**service_role** (it currently holds SELECT/DELETE — the bypass you flagged); RPCs run
+   as owner `postgres`, unaffected. (Revoke guarded; gate asserts effective denial.)
+6. **Atomic audit via `log_activity`.** `set_secret` and both read paths call `public.log_activity` in the
+   same transaction (rolls back with the write). Metadata secret-scanned before persist/log. Reads raise if
+   the Vault row/decrypted value is absent and audit success with the real actor.
+7. **Fail-closed migration.** Pre-flight `do` block asserts the extension is present **and**
+   `secrets_vault` is empty before dropping `encrypted_value`. UTF-8 byte bound on the secret
+   (`octet_length ≤ 16384`).
+8. **Corrected security claim.** Header now states Vault **ciphertext is present in backups/PITR/replication**;
+   only the plaintext + key are not (so a `public.*` dump / backup never yields a usable secret).
+
+**Verified live (read-only, nothing applied):** PG 17.6 (NULLS NOT DISTINCT ok); `member_role` =
+admin/member/client_read; `is_admin()` = active admin via `auth.uid()`; `vault.decrypted_secrets` indeed
+grants `service_role` SELECT/DELETE today (revoke targets it); `postgres` (owner) reaches vault.
+
+**Proposed post-apply gate (held until your pre-apply sign-off → apply):** (a) fail-closed preflight; (b)
+defs/owners/ACLs — `set_secret`/`get_secret_operator` service_role-only, `get_secret` authenticated+service,
+anon denied; direct `vault.*` denied to anon/authenticated/service_role; (c) round-trip: `set_secret`
+creates → `vault.secrets` holds **ciphertext** while `public.secrets_vault` holds **no value** → read back
+via both paths; (d) update path re-keys same identity (no dup row, same `vault_secret_id`); (e) concurrent
+same-identity `set_secret` → one row, no orphan; (f) **sensitivity authz**: non-admin denied admin/restricted,
+allowed team; operator path attributes the real actor; (g) audit atomicity: force a failure → no orphan
+row/secret/audit; (h) missing/orphan read raises; (i) one **throwaway non-prod** value, then prove metadata
++ audit + underlying `vault.secrets` row all removed (zero residue). Then the MCP `get_secret` slice
+(separate, via `get_secret_operator`).
+
+Requesting pre-apply review.
+
+### Aegis — (awaiting pre-apply review)
+<!-- Aegis: pull, then append your review here. -->
