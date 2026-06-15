@@ -1,6 +1,6 @@
 # 0005 — Frontmatter backfill for skipped memory files (Helios)
 
-**Status:** OPEN · **Owner:** Helios · **Opened:** 2026-06-15 by Atlas
+**Status:** ✅ **16/17 BACKFILLED + LIVE** (2026-06-15) — Helios classified all 17; Aegis security-reviewed; Atlas applied frontmatter to the 16 eligible + ingested them (brain now 117 entries / 70 chunks). `intellitax.md` held out per the authoritative quarantine (revoked `sbp_` token) and reverted to untouched — pending Jesse's redact-and-reingest call. · **Owner:** Atlas · **Opened:** 2026-06-15 by Atlas
 **Topic:** Classify the memory files that were skipped from Phase-1 ingestion (no frontmatter `name:`) and
 propose frontmatter so they can be backfilled into the brain. **Helios proposes; Atlas/Jesse apply +
 re-ingest.** This is the first self-contained data-plane unit handed to Helios.
@@ -125,3 +125,44 @@ Before re-ingestion, Atlas must review all 16 descriptions/types, apply only app
 rerun secret scanning, and report the exact accepted/skipped/quarantined counts and source paths.
 Aegis will review the resulting ingestion reconciliation. No canonical memory file, code, or database
 record was modified by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (applied + ingested — reconciliation; intellitax held out)
+
+Done, and it matches your reconciliation exactly: **16 eligible backfilled + 1 quarantined rejected.**
+I independently hit the same `intellitax.md` conflict — the embed-phase secret scanner quarantined it on
+`/\bsbp_[A-Za-z0-9]{20,}/`. Reviewed all 16 (Helios's types are sound; two borderline-but-fine calls:
+`intelliservice`=reference, `claude-session-strategy`=feedback).
+
+**Process:** prepended Helios's frontmatter to the eligible files (backup taken first; memory dir isn't
+git-tracked), validated each parses with the ingest regex, then ran the real split pipeline
+(`ingest-embed` → `ingest-persist`) over a staged copy of the set so the existing 101 entries were
+untouched (per-record upsert, no cross-entry delete).
+
+**Embed/persist counts** (run `43fcfab6-754e-49a1-8989-41d9869ffd9a`, status **success**):
+`{accepted:16, quarantined:1, skipped:0, failed:0, embedded_vectors:37, chunk_rows:27}`.
+
+**Accepted (16) — `source_path` = `memory/<file>`:** 4wardmotion, claude-session-strategy *(feedback)*,
+fastalpr-implementation, impacttracker, intellicity, intellimetrics, intellioptics, intellioptics-2.5,
+intellipour, intelliproperty, intelliservice-demo, intelliservice *(reference)*,
+intellitax-interview-gaps, mentorapp-desktop-layout, sultanofswing, zodiac-aos534. *(remaining 14 =
+project.)*
+
+**Quarantined (1):** `memory/intellitax.md` — content matched `sbp_…`. The token is the **already-revoked**
+`sbp_d626…` (rotated out 2026-06-04 per MEMORY.md), so no live exposure, and it was **never sent to the
+API** (quarantined at the scan, before embed). Per your directive I **reverted `intellitax.md` to its
+untouched original** (removed the frontmatter I had prepended); it is left exactly as the authoritative
+quarantine expects.
+
+**Live verification (read-only):** brain now **117 entries / 70 chunks / 4 ingestion runs**. All 37 new
+vectors: `vector_dims=768`, `vector_norm≈1` (0 bad), `embedding_model=gemini-embedding-001` (0 wrong). No
+`intellitax` entry exists. 6 long files chunked (fastalpr 5, impacttracker 7, intellioptics 3,
+intellioptics-2.5 6, sultanofswing 2, zodiac 4); 10 single-vector.
+
+**Recommendation for `intellitax.md` (Jesse's call):** since the token is revoked, the clean path is to
+**redact it** (replace with a placeholder) in the canonical file, then backfill + ingest it as a normal
+17th entry — as a separate unit with its own secret-rescan + your re-review. Holding until you decide.
+
+### Aegis — (awaiting reconciliation review)
+<!-- Aegis: pull, then append your review here. -->
