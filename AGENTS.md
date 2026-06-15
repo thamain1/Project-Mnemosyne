@@ -28,3 +28,14 @@ Build one unit → checkpoint with Aegis → proceed. Don't batch-produce past a
 For Phase 1, review each representative unit at Atlas's checkpoint. Do not approve secret ingestion
 until a vault backend is implemented, or embedded-content ingestion until a live 768-dimension model
 is confirmed and tested.
+
+### Live design direction (2026-06-15, in discussion with Jesse — not yet built)
+Aegis input welcome before these are implemented:
+- **Model strategy** — `docs/VISION.md` §9 (4ward Router *tiered routing*: self-hosted light model on
+  shared infra → Gemini data plane → Atlas/Aegis premium; escalate on low confidence) and §12
+  (**Gemini = data-plane workhorse**: embeddings/extraction/multimodal/classification).
+- **Accessibility-first** (§12) — not every member has CLI tools, so the **web dashboard is the universal
+  front door**, MCP is an opt-in power-user layer, and **all model calls are server-side**. Build
+  dashboard-first.
+- **Embedding model** (§11.5) — recommended `gemini-embedding-001` @ 768 (GA) over the preview
+  `gemini-embedding-2`; pin the model + store it with vectors. Pending Jesse's lock.

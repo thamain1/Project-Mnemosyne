@@ -141,6 +141,16 @@ front of many models** (Anthropic, others), routing per task with the flexibilit
 models. Lets every 4ward product and agent call a single endpoint while we control routing, cost,
 fallback, and policy. Not in the continuity-core scope; captured here as a roadmap pillar.
 
+**Tiered routing (direction, 2026-06-15).** Route by task difficulty/cost to maximize premium token
+budgets:
+- **Self-hosted open-weight model** (Llama/Qwen/Gemma-class, on *shared* infra — never a personal
+  machine) → high-volume light work: tagging, classification, dedup, routine summarization,
+  draft-then-refine. Near-zero marginal cost.
+- **Gemini (cloud)** → the data plane (see §12).
+- **Atlas (Claude) / Aegis (Codex)** → reserved for hard reasoning, building, and adversarial QC.
+- **Escalation:** cheap model first, escalate to premium on low confidence. One internal API so
+  products never hard-wire a vendor. Goal: stop spending premium tokens on work a cheap model does fine.
+
 ## 10. Phasing
 
 - **Phase 0 — Provision.** Repo + Supabase project + house-stack scaffold + schema migration + RLS.
@@ -163,5 +173,28 @@ fallback, and policy. Not in the continuity-core scope; captured here as a roadm
    team members (survivability first).
 3. Do team members each get their own Supabase Auth identity now, or staged?
 4. GitHub repo: `github.com/thamain1/Project-4ward` ✅ (confirm visibility is private).
-5. **Embedding model** — confirm the current 768-dim model before Phase 1 ingestion (`text-embedding-004`
-   is retired; need a live model explicitly set to 768 output dims).
+5. **Embedding model** — **recommended: `gemini-embedding-001` @ `output_dimensionality=768`** (GA/
+   stable). `gemini-embedding-2` is newer but still **preview** (2026-03-10), and embedding spaces are
+   model-incompatible — committing the durable corpus to a preview model risks a full re-embed. **Pin
+   the model name/version and store it with the vectors**; any upgrade is a deliberate scripted re-embed.
+   *Pending Jesse's confirm to lock.*
+
+## 12. Model strategy & accessibility (direction — 2026-06-15)
+
+**Agent division of labor.** **Atlas (Claude)** = lead engineering/reasoning. **Aegis (Codex)** =
+adversarial QA/QC. **Gemini** = the **data-plane workhorse**: embeddings (`gemini-embedding-001`),
+document extraction + multimodal (SOWs/MOUs/specs/images; proven via DocAI→Gemini in IntelliTax),
+high-volume classification/tagging/summarization, and cheaper/faster generation where Claude-grade
+reasoning isn't required. A future self-hosted model slots *under* Gemini for the lightest, highest-
+volume work (see §9).
+
+**Accessibility is a first-class constraint — not every member has CLI tools.** Some of the team
+(non-technical execs) won't run Claude Code / Codex / a Gemini CLI. Therefore:
+- The **web dashboard (then the Tauri desktop app) is the universal front door** — zero install,
+  browser-only; recall/docs/search/activity reachable by *every* member with no tools installed.
+- The **MCP server is an opt-in power-user layer** for CLI-equipped members — an enhancement, never
+  the baseline.
+- **All model calls are server-side** with shared keys: a member needs no API key or CLI to *use* the
+  brain. Personal tools are only needed to run one's *own* agent against it (additive).
+- **Build dashboard-first**; treat CLI/MCP as the enhancement, so the non-technical execs are full
+  citizens of the brain.
