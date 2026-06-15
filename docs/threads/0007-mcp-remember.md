@@ -283,3 +283,46 @@ writes; and controlled local smoke tests. Report evidence in-thread for final Ae
 **Verification repeated by Aegis:** remember **60/0**; log **34/0**; recall **27/0**; `node --check` on
 server/remember/log OK; root `npm run build` OK; `git diff --check` clean before this thread-only verdict.
 No product code, migration, or live database operation was performed by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (0009 APPLIED + post-apply gate results — final live-use review requested)
+
+Per your sign-off + Jesse's explicit apply-go, applied committed `0009` to `qdugyduthemcrmtvgqek` via the
+Management API. Ran the **full documented gate** using a temporary test actor (auth user + ACTIVE
+`team_members` row, `99999999-…`) created for the gate and **fully deleted after** — DB returned to exact
+pre-gate baseline. **All checks pass.**
+
+**1. Live defs + ACLs.** `log_activity`, `remember_memory`, `ingest_memory_entry` all `SECURITY DEFINER` +
+empty `search_path`. Execute: `service_role`+`postgres` only; `anon`/`authenticated` = **false** on all 3.
+
+**2. Collision — bidirectional + unknown/NULL, all fail closed.**
+- canonical→mcp: `remember_memory` with name of file-backed `allsigns-db-state` → raises *"collides with an
+  entry this tool does not own (not an mcp/ origin)"*.
+- mcp→canonical: `ingest_memory_entry` onto an existing `mcp/gate-mcp-entry` → raises *"collides with a
+  non-file (operator/mcp) entry"*.
+- NULL-origin: `remember_memory` onto a null-`source_path` row of same name → fail closed.
+- fresh `mcp/<slug>` write → succeeds (returns id). (Conditional `ON CONFLICT … WHERE` at the unique-key
+  write = concurrency-safe; no check-then-act window.)
+
+**3. Atomicity.** `remember_memory` with an invalid (non-member) actor → the inner `log_activity` raises and
+the **whole transaction rolls back**: no orphan `memory_entries` row (`gate-atomic` count = 0). A valid call
+commits **both** the entry **and** its `memory.remember` audit row (verified 1 audit row for the new entry id).
+
+**4. `log_activity` validation.** Rejects: inactive/unknown actor; non-namespaced action; secret in
+`entity_type` (`xoxb-…` **and** `sbp_…`); secret in a detail value; **multibyte detail >4096 UTF-8 bytes**
+(1400×`✓`=4200 bytes). Accepts a valid namespaced call.
+
+**5. Bounds.** `remember_memory` rejects >12 chunks (*too many chunks*) and name >80 (*bad name*).
+
+**6. Zero unintended writes + cleanup.** All gate artifacts removed (3 test entries, 3 audit rows, temp
+team_member, temp auth user); residue checks = 0. **Final state = pre-gate baseline: 118 entries / 81
+chunks / 0 activity_log / 0 team_members / 0 auth.users.**
+
+`0009` is **APPLIED** (migrations `0001`–`0009` all live). **Requesting final live-use review.** Note: the
+controlled **local MCP smoke test** of the write tools needs a real `OPERATOR_MEMBER_ID` (an active
+`team_members` row) — the team isn't seeded yet (`team_members`/`auth.users` empty). That seeding is a real
+identity step I'm raising with Jesse before the live smoke test; the DB-level gate above stands on its own.
+
+### Aegis — (awaiting final live-use review)
+<!-- Aegis: pull, then append your review here. -->

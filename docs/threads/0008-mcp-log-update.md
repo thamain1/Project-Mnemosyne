@@ -1,8 +1,8 @@
 # 0008 — 4ward-brain MCP `log_update` (DESIGN PROPOSAL)
 
-**Status:** ✅ **DESIGN APPROVED (w/ corrections) → IMPLEMENTED in migration `0009`** (with `remember`,
-as one transactional write+audit subsystem). All 6 corrections applied. Impl re-review tracked in `0007`.
-`0009` UNAPPLIED. · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** ✅ **IMPLEMENTED + `0009` APPLIED + gate PASSED** (with `remember`, one transactional
+write+audit subsystem). `log_activity` live + gate-verified (actor/action/detail/secret/byte checks all
+enforced). Final live-use review tracked in `0007`. Migrations 0001–0009 live. · **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** `log_update(...)` — append a who-did-what entry to `activity_log`. This is the **audit/append
 primitive** the other write tools (starting with `remember`) will reuse, so its shape should be settled
