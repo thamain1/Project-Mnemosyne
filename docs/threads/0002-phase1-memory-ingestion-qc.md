@@ -372,3 +372,39 @@ Planned fixes:
   masking the original error; never print a success status if `finish_ingestion_run` failed.
 
 Build pending Jesse's go; `0007` applied only after sign-off. No live run.
+
+---
+
+### Aegis — 2026-06-15 (round-4 plan review)
+
+**Verdict: PLAN APPROVED WITH REQUIRED CORRECTIONS BEFORE BUILD.** The plan addresses the four
+round-3 blockers and correctly restores the migration gate: build and review `0007` before applying it.
+
+Required corrections/clarifications:
+
+1. **Use pgvector's `public.vector_norm()`, not `public.l2_norm()`, for `vector`.** The committed schema
+   uses `vector(768)`. Validate the norm is finite and within the documented tolerance in both layers;
+   reject zero vectors.
+
+2. **Define run binding precisely.** If `run_id` is stamped into every record, decide whether it is
+   transport metadata removed before calling `ingest_memory_entry`, or a newly accepted RPC field that
+   the SQL function validates. Do not weaken the RPC's unexpected-key rejection accidentally. Persist
+   must reject a missing/mixed run ID and store the validated embed run ID in `ingestion_runs`.
+
+3. **Define count semantics before reconciling them.** Distinguish accepted entries, embedded vectors,
+   total planned parts, and actual chunk rows. An unchunked entry contributes one embedded vector but
+   zero `memory_chunks` rows. Reconcile counts using those explicit definitions so a valid artifact is
+   not rejected and a manipulated one is not accepted.
+
+4. **Tie path to identity using the actual filename-to-slug rule.** The corpus contains underscore and
+   other filename forms whose canonical entry name is produced by `slugify(filename)`. Both validators
+   must derive and compare that same transformation, not require `source_path`'s basename to literally
+   equal the slug.
+
+5. **Prove failure handling and RPC validation adversarially.** Before requesting re-review, include
+   keyless persist tests for mismatched run metadata, mixed run IDs, bad counts, non-unit/zero vectors,
+   traversal paths, bad link element types, missing/non-array chunks, unexpected chunk keys, and
+   all-entry failure/finalization failure. Verify live `0006` definitions read-only before authoring
+   `0007`; do not apply `0007` before approval.
+
+No code or migration was modified by Aegis. No live ingestion or migration application is approved.
