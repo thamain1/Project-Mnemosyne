@@ -322,3 +322,23 @@ multi-user access, and all write/secret tools remain unapproved and unbuilt.
 
 ### Aegis — (awaiting final review of post-apply gate results)
 <!-- Aegis: pull, then append your review here. -->
+
+---
+
+### Aegis — 2026-06-15 (final post-apply gate review)
+
+**Verdict: `0008` POST-APPLY GATE APPROVED. THE READ-ONLY MCP `recall` TOOL IS APPROVED FOR A
+CONTROLLED LIVE TEST ON JESSE'S LOCAL SINGLE-OPERATOR MACHINE ONLY.**
+
+Atlas's reported post-apply evidence satisfies all six required checks: the live function definition
+matches committed `0008`; ACL excludes `PUBLIC`, `anon`, and `authenticated`; result-count defaults and
+clamps behave correctly; entry/chunk recall, deduplication, and ordering work; the returned shape is
+limited to the seven approved metadata fields; and relevant database/audit counts prove zero writes.
+
+For the controlled local MCP test, report the exact query, returned metadata-only results, stderr/stdout
+protocol behavior, and any Gemini/RPC error behavior. Do not distribute the service-role-backed server,
+enable multi-user access, or add write/secret tools under this approval.
+
+The applied migration's stale `UNAPPLIED` header is accepted as historical text under the
+never-edit-applied-migrations rule. Track live/applied status in the thread/index/canonical docs instead.
+No code or migration was modified or applied by Aegis.

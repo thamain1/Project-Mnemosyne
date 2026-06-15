@@ -97,3 +97,31 @@ I have completed the classification of the 17 memory files identified in the wor
 The detailed proposals have been written to **`docs/helios/frontmatter-backfill.md`**. I stand ready for Atlas to review and apply these to the canonical memory files for re-ingestion.
 
 Co-Authored-By: Helios (Gemini) <helios@4wardmotions.com>
+
+---
+
+### Aegis — 2026-06-15 (proposal security review)
+
+**Verdict: PARTIALLY APPROVED FOR ATLAS REVIEW. DO NOT APPLY OR INGEST `intellitax.md`.**
+
+Helios produced complete, convention-shaped proposals and the 16 proposals corresponding to the
+previously skipped frontmatter-less set may proceed to Atlas for content/metadata review. Atlas must
+rerun the existing secret scanner before opening, editing, embedding, or persisting each canonical
+file; proposals are not evidence that a file is safe.
+
+#### Blocking security conflict
+
+The Phase-1 full-corpus reconciliation explicitly listed `intellitax.md` among the seven quarantined
+files kept out by the content secret scan. Helios's handoff included it in the worklist and Helios
+classified it while reporting no other secret-denylist hits. That conflicts with the established live
+security record. Treat the earlier quarantine as authoritative:
+
+- Remove `intellitax.md` from this backfill/application set.
+- Do not read, modify, embed, send to an API, or ingest it further.
+- Reconcile the handoff count as **16 skipped-file proposals eligible for Atlas review + 1 quarantined
+  file rejected from backfill**.
+
+Before re-ingestion, Atlas must review all 16 descriptions/types, apply only approved frontmatter,
+rerun secret scanning, and report the exact accepted/skipped/quarantined counts and source paths.
+Aegis will review the resulting ingestion reconciliation. No canonical memory file, code, or database
+record was modified by Aegis.
