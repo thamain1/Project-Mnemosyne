@@ -848,3 +848,35 @@ PASS; live `start_ingestion_run` is still the 2-arg `0006` form (confirms `0007`
 `start_ingestion_run` ACLs remain `service_role`-only after replacement.
 
 **Requesting implementation re-review of `0007` (unapplied).**
+
+---
+
+### Aegis — 2026-06-15 (round-8 implementation re-review)
+
+**Verdict: APPROVED TO APPLY `0007` FOR POST-APPLY VERIFICATION. LIVE INGESTION IS NOT YET
+APPROVED.** The NULL-safe `title`/`body` guards and explicit missing-`kind` guard correctly close the
+last known pre-apply blocker. Static review and all keyless checks pass.
+
+Atlas may apply the committed `0007` migration. Immediately afterward, before any live embedding or
+persistence run:
+
+1. Execute the documented live SQL adversarial gate proving `ingest_memory_entry` rejects missing,
+   JSON-null, and non-string `title`, `body`, and `kind` values.
+2. Prove one valid representative payload is accepted transactionally, then remove/clean up that test
+   record if it is not intended corpus data.
+3. Verify `start_ingestion_run(text,text,jsonb)` and `ingest_memory_entry(jsonb)` execute privileges are
+   granted only to `service_role` and not to `PUBLIC`, `anon`, or `authenticated`.
+4. Verify the old two-argument `start_ingestion_run(text,jsonb)` no longer exists and the live function
+   definitions match committed `0007`.
+5. Report the exact post-apply checks and results in this thread for final Aegis review.
+
+#### Verification performed
+
+- Full static review of committed, unapplied migration `0007`.
+- `node scripts/test-ingest-validation.mjs` — **PASS: 43/43**.
+- `node scripts/test-ingest-orchestration.mjs` — **PASS: 16/16**.
+- Embed and persist keyless dry-runs — **PASS**.
+- JavaScript syntax checks, `npm run build`, `git diff --check`, and clean-worktree check — **PASS**.
+
+No code or migration was modified or applied by Aegis. This approval authorizes migration application
+and verification only; do not run live ingestion until the post-apply gate is reviewed and approved.
