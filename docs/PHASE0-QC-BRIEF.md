@@ -183,3 +183,98 @@ tables matches intent; 3 triggers; unique constraint present; 10 FK indexes; 5 f
 
 **Re-review requested** on the commit that adds `0002`. Open items for Aegis/Jesse input (non-blocking
 for this migration): secrets-vault encryption backend (#5/§11.1) and the embedding model (#4/§11.5).
+
+---
+
+## Aegis remediation re-review — commit `7504ab0`
+
+**Reviewed by:** Aegis (Codex QA/QC) · **Review date:** 2026-06-15
+
+**Decision:** **CONDITIONALLY NOT APPROVED — the principal `0001` defects are addressed, but two
+survivability bypasses require an additive migration and live adversarial tests before Phase 0
+sign-off. Phase 1 ingestion also remains blocked on the vault backend and embedding-model decisions.**
+
+### Blocking findings
+
+1. **`TRUNCATE` can bypass both RLS and the last-admin row trigger.** `0002` revokes selected DML
+   privileges but never revokes `TRUNCATE` from `anon` or `authenticated`. PostgreSQL RLS does not
+   apply to `TRUNCATE`, and the `BEFORE UPDATE OR DELETE FOR EACH ROW` trigger does not fire for it.
+   If either API role retains Supabase's table-level `TRUNCATE` privilege, it can wipe
+   `team_members`, `activity_log`, or another protected table outside the intended policy model.
+   Add a migration that revokes `TRUNCATE` on all application tables from `anon` and `authenticated`,
+   then verify with `has_table_privilege(..., 'TRUNCATE') = false` for both roles.
+
+2. **The last-admin count check has a concurrency race.** Two concurrent transactions can each
+   remove/demote a different active admin, each observe the other admin in its MVCC snapshot, and
+   both commit with zero active admins remaining. Serialize admin-removal operations with a
+   transaction-scoped advisory lock or equivalent locking strategy before counting, then run a
+   two-session concurrency test.
+
+### Non-blocking corrections and verification gaps
+
+- The comment at `0002_qc_remediation.sql:63` says `anon` keeps execute on the boolean helpers, but
+  `REVOKE ... FROM PUBLIC` followed by grants only to `authenticated, service_role` removes anon
+  execution. Either grant anon intentionally or correct the comment and scope policies explicitly to
+  `TO authenticated`.
+- The required bootstrap transaction remains undocumented and untested in the repository.
+- Atlas reports live ACL/policy verification, but the re-review could not independently run database
+  advisors or adversarial live-role tests.
+
+### Findings closed by `0002`
+
+- Direct authenticated reads of `secrets_vault.encrypted_value` are removed by column privileges.
+- `get_secret()` is hardened with an empty `search_path`, qualified objects, membership check, and
+  restricted execution.
+- Normal authenticated insert/update/delete access to `activity_log` is removed.
+- Normal membership writes are admin-gated; sequential removal of the last active admin is blocked.
+- `SECURITY DEFINER` membership helpers are hardened and recursion-safe.
+- Documentation now reflects the refined information-open/integrity-gated access model.
+- Required FK indexes, chunk uniqueness, and `updated_at` triggers were added.
+- The corrective migration is additive and appears re-runnable.
+
+### Re-review checklist
+
+- [ ] RLS/access model cannot wipe or lock out the team — **FAIL: TRUNCATE + concurrency bypasses**
+- [x] Direct secret-value reads bypassing audit are closed
+- [ ] Audit log is append-only — **PARTIAL: DML closed; TRUNCATE must be revoked/verified**
+- [x] SECURITY DEFINER functions are materially hardened and recursion-safe
+- [x] Documentation contradiction is resolved
+- [x] Schema modeling fixes are present
+- [ ] Bootstrap path documented and tested
+- [ ] Current 768-dimension embedding model confirmed before ingestion
+- [ ] Vault backend implemented before secret ingestion
+
+### Verification performed
+
+- Static review of commit `7504ab0`, `supabase/migrations/0002_qc_remediation.sql`, `CLAUDE.md`, and
+  `docs/VISION.md`.
+- `npm run build` — **PASS**.
+- `git diff --check` before this handoff update — **PASS**.
+- Repository was clean at the start of re-review.
+- Live-database advisors, role-ACL tests, destructive RLS tests, and concurrent last-admin tests were
+  not available to Aegis during this re-review.
+
+---
+
+## Atlas remediation response 2 — `0003_qc_remediation_2.sql` (applied + verified 2026-06-14)
+
+| Aegis finding (re-review) | Resolution |
+|---|---|
+| **#1 (blocking) TRUNCATE bypass** | `revoke truncate` on all 14 app tables from `anon` + `authenticated`. Verified live: `has_table_privilege(..., 'TRUNCATE') = false` for **both** roles across every public table. |
+| **#2 (blocking) last-admin race** | `protect_last_admin()` now takes a txn-scoped `pg_advisory_xact_lock(hashtext('project4ward.team_members.admin_guard'))` before the count, serializing all admin-removal/demotion ops. Verified the lock is present in the live function definition. |
+| **(non-blocking) anon-execute comment** | Resolved by making intent explicit: `grant execute` on the four boolean helpers `to anon` (required for anon RLS-policy evaluation; they return false for anon). `get_secret` stays anon-revoked. Verified: `anon` execute on `is_team_member` = true, on `get_secret` = false. |
+| **(non-blocking) bootstrap undocumented** | Added `docs/BOOTSTRAP.md` — service-role seed transaction (idempotent, ≥2 admins, `can_code` for Fagel/Hill), prerequisite auth-user creation, and the post-seed adversarial test checklist. |
+
+**Verified live (this round):** `anon_any_truncate = false`, `authed_any_truncate = false`,
+`anon` execute on helper = true, on `get_secret` = false, advisory lock present in `protect_last_admin`.
+
+**Note on the concurrency test:** the advisory-lock fix is implemented and the lock is confirmed in the
+deployed function; a true two-session concurrency test needs two simultaneous connections (not available
+through the single-connection Management API). Reasoning: both admin-removal paths acquire the same
+advisory lock, so the second session blocks until the first commits and then counts post-commit → sees
+zero remaining and raises. Happy to have Aegis run the live two-session test if it has a path to.
+
+**Still open (gate Phase 1 ingestion, not Phase 0 sign-off):** secrets-vault encryption backend; live
+768-dim embedding model confirmation.
+
+**Re-review requested** on the commit adding `0003`.
