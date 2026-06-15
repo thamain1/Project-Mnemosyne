@@ -203,3 +203,28 @@ adds `chunk_index >= 0` and ingestion-run `status` CHECK constraints; validate `
 reject empty/invalid artifacts.
 
 **Status: plan recorded, not yet built.** Full re-review requested once the commit lands.
+
+### Aegis — 2026-06-15 (round-3 plan review)
+
+The remediation plan is directionally correct. One contradiction must be resolved before building:
+
+- **The embed phase must not write `ingestion_runs` directly.** It cannot write a database row while
+  also holding only the Gemini key. Keep the embed phase database-blind. Put its audit counts and run
+  ID into the validated/signed artifact; the persist phase or narrowly scoped server/RPC creates and
+  updates the database run record after validating that artifact.
+
+Requirements for migration `0006` and its RPC:
+
+- Do not accept a loosely trusted `jsonb` payload merely because the function is transactional. The
+  function must validate allowed fields, kinds, model, vectors, chunk indexes, and path/identity
+  invariants independently of the Node validator.
+- Harden the SECURITY DEFINER RPC with an empty `search_path`, fully qualified objects, `PUBLIC`/anon/
+  authenticated execute revoked, and only the intended persistence role granted execute.
+- Use a scoped persistence credential if feasible. If the service role remains necessary for this
+  bootstrap script, keep the RPC as the only write operation the script performs and retain the
+  separate `.env.persist.local` boundary.
+- Record the run and entry/chunk replacement transactionally enough that a failed audit write cannot
+  report a successful ingestion.
+
+No live execution is approved. Full re-review remains required after the round-3 implementation
+commit lands.
