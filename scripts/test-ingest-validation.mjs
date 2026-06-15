@@ -40,6 +40,8 @@ throws('non-contiguous chunk_index', () => validateRecord({ ...base(), embedding
 throws('run meta unexpected key', () => validateRunMeta({ ...meta(), foo: 1 }))
 throws('run meta bad kind', () => validateRunMeta({ ...meta(), kind: 'x' }))
 throws('run meta bad count', () => { const m = meta(); m.embed_counts.accepted = -1; validateRunMeta(m) })
+throws('run meta unexpected embed_counts key', () => { const m = meta(); m.embed_counts.extra = 1; validateRunMeta(m) })
+throws('run meta fractional count', () => { const m = meta(); m.embed_counts.accepted = 1.5; validateRunMeta(m) })
 
 throws('reconcile bad accepted', () => reconcileCounts([base()], { ...meta().embed_counts, accepted: 2 }))
 throws('reconcile bad chunk_rows', () => reconcileCounts([base()], { ...meta().embed_counts, chunk_rows: 5 }))
@@ -51,6 +53,8 @@ accepts('reconcile valid (chunked, 2 rows)', () => reconcileCounts(
 eq('status zero -> failed', decideStatus(0, 5), 'failed')
 eq('status partial', decideStatus(3, 5), 'partial')
 eq('status success', decideStatus(5, 5), 'success')
+eq('status embed-failure -> partial', decideStatus(5, 5, 1), 'partial')
+eq('status zero+embed-failure -> failed', decideStatus(0, 5, 2), 'failed')
 
 console.log(`[test] pass=${pass} fail=${fail}`)
 if (fail) process.exitCode = 1

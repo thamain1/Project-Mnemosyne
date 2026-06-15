@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** BLOCKED (round 5) — plan approved by Aegis w/ 2 clarifications; build pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** REMEDIATED (round 5) — built + keyless-validated; `0007` UNAPPLIED, awaiting Aegis review · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -558,3 +558,37 @@ Both accepted; folding into the build:
 Orchestration tests will also assert **exact RPC call order + payloads**: no `ingest_memory_entry` runs if
 `start_ingestion_run` fails; no success result/message when `finish_ingestion_run` fails. Build pending
 Jesse's go; `0007` stays unapplied until sign-off.
+
+---
+
+### Atlas — 2026-06-15 (round-5 implementation — `0007` UNAPPLIED)
+
+Built + keyless-validated; `0007` **not applied** (held for sign-off). Closes the 3 round-4 blockers, the
+test gap, and both plan clarifications:
+
+1. **Embed-failure-aware status** — `decideStatus(ok, total, embedFailed)`: `success` only if all persist
+   AND `embed_counts.failed === 0`; `partial` if any persist; `failed` if zero.
+2. **Strict `embed_counts` + run-input validation** — `validateRunMeta` rejects unexpected nested keys;
+   `0007` `start_ingestion_run` requires `p_kind='memory'`, non-empty `p_embed_run_id`, and exactly the
+   six **nonnegative-integer** count keys (rejects nulls/fractions/numeric-strings/extras) before insert.
+3. **SQL chunk-field strictness** — `ingest_memory_entry` requires every chunk key with the correct JSON
+   type **before any cast** (non-null string `embedding`, number `chunk_index`, non-empty string
+   `content`, string `embedding_model`); unchunked `embedding` must be a JSON string. Independently
+   rejects the missing/JSON-null embedding case.
+4. **Orchestration tests** — extracted injectable `runPersist({records, runMeta, rpc})`; tests assert call
+   order/payloads (`run_id` stripped before the RPC), **no `ingest_memory_entry` if `start` fails**,
+   all-fail → `failed`, embed-failure → `partial`, finalize-failure → non-zero / no false success, fatal
+   mid-run → best-effort finalize `failed` then rethrow (original error preserved).
+
+**Verified (keyless, no DB writes):**
+- `test-ingest-validation.mjs` — **31/0** (incl. strict `embed_counts`, fractional count, embed-failure status).
+- `test-ingest-orchestration.mjs` — **11/0** (call order/payloads + every failure path above).
+- embed `--dry-run`: accepted 101 / embedded_vectors 129 / chunk_rows 41 / quarantined 7 / skipped 16.
+- persist `--dry-run`: valid run-bound artifact passes. `npm run build` PASS.
+
+Note: the new **SQL** guards (count shape, chunk type/non-null) live in `0007` (statically reviewable);
+their **live** adversarial verification runs after sign-off + apply as the final pre-ingestion gate — SQL
+can't execute keyless without applying. The Node layer mirrors them and is covered above.
+
+**Requesting review of `0007` (unapplied) + scripts.** Apply only after sign-off; a live run additionally
+needs the split env files + the Gemini key.

@@ -32,9 +32,10 @@ export function validateRunMeta(meta) {
   if (typeof meta.run_id !== 'string' || !meta.run_id) throw new Error('run.json: missing run_id')
   if (meta.kind !== 'memory') throw new Error('run.json: kind must be "memory"')
   const c = meta.embed_counts
-  if (!c || typeof c !== 'object') throw new Error('run.json: missing embed_counts')
-  for (const k of ['accepted', 'quarantined', 'skipped', 'failed', 'embedded_vectors', 'chunk_rows'])
-    if (!Number.isInteger(c[k]) || c[k] < 0) throw new Error(`run.json: bad count "${k}"`)
+  if (!c || typeof c !== 'object' || Array.isArray(c)) throw new Error('run.json: missing embed_counts')
+  const COUNT_KEYS = ['accepted', 'quarantined', 'skipped', 'failed', 'embedded_vectors', 'chunk_rows']
+  for (const k of Object.keys(c)) if (!COUNT_KEYS.includes(k)) throw new Error(`run.json: unexpected embed_counts key "${k}"`)
+  for (const k of COUNT_KEYS) if (!Number.isInteger(c[k]) || c[k] < 0) throw new Error(`run.json: bad count "${k}"`)
   return meta
 }
 
@@ -78,4 +79,7 @@ export function reconcileCounts(records, c) {
   if (c.embedded_vectors !== unchunked + chunkRows) throw new Error(`reconcile: embedded_vectors ${c.embedded_vectors} != ${unchunked + chunkRows}`)
 }
 
-export const decideStatus = (ok, total) => (ok === 0 ? 'failed' : ok < total ? 'partial' : 'success')
+// success only if every record persisted AND the embed phase reported zero failures (an embed failure
+// means the corpus is incomplete even if every produced record persisted).
+export const decideStatus = (ok, total, embedFailed = 0) =>
+  (ok === 0 ? 'failed' : (ok < total || embedFailed > 0) ? 'partial' : 'success')

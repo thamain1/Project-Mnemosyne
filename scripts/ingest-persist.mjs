@@ -8,7 +8,8 @@
 // Run:  node --env-file=.env.persist.local scripts/ingest-persist.mjs [--dry-run]
 
 import { readFile } from 'node:fs/promises'
-import { validateRunMeta, validateRecord, reconcileCounts, decideStatus, stripRunId } from './lib/ingest-validate.mjs'
+import { validateRunMeta, validateRecord, reconcileCounts } from './lib/ingest-validate.mjs'
+import { runPersist } from './lib/ingest-run.mjs'
 
 const ART = '.ingest/memory.jsonl'
 const RUN = '.ingest/run.json'
@@ -35,34 +36,18 @@ reconcileCounts(records, runMeta.embed_counts)
 console.log(`[persist] validated ${records.length} records + run metadata (0 errors), dryRun=${DRY}`)
 if (DRY) { console.log('[persist] dry-run OK — validation passed; no writes, no Supabase client constructed.'); process.exit(0) }
 
-// ---- live: all writes via RPC ----
+// ---- live: all writes via the injectable runPersist orchestration ----
 const URL = process.env.VITE_SUPABASE_URL, KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!URL || !KEY) throw new Error('Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
 const { createClient } = await import('@supabase/supabase-js')
 const supabase = createClient(URL, KEY, { auth: { persistSession: false } })
+const rpc = (fn, args) => supabase.rpc(fn, args)
 
-const { data: dbRunId, error: eStart } = await supabase.rpc('start_ingestion_run',
-  { p_kind: 'memory', p_embed_run_id: runMeta.run_id, p_embed_counts: runMeta.embed_counts })
-if (eStart) throw new Error(`start_ingestion_run failed: ${eStart.message}`)
-
-let ok = 0, failed = 0
-try {
-  for (const rec of records) {
-    const { error } = await supabase.rpc('ingest_memory_entry', { payload: stripRunId(rec) })
-    if (error) { console.error(`  FAIL ${rec.name}: ${error.message}`); failed++ } else ok++
-  }
-} catch (fatal) {
-  // best-effort finalize as failed; do NOT mask the original error
-  await supabase.rpc('finish_ingestion_run', { p_id: dbRunId, p_status: 'failed', p_counts: { persisted: ok, failed, fatal: String(fatal.message) } }).catch(() => {})
-  throw fatal
-}
-
-const status = decideStatus(ok, records.length)   // 'failed' when ok===0
-const { error: eFin } = await supabase.rpc('finish_ingestion_run', { p_id: dbRunId, p_status: status, p_counts: { persisted: ok, failed } })
-if (eFin) {
-  console.error(`[persist] run=${dbRunId} FINALIZE FAILED: ${eFin.message} (ingestion NOT recorded as ${status})`)
+const res = await runPersist({ records, runMeta, rpc })
+if (!res.finalized) {
+  console.error(`[persist] run=${res.dbRunId} FINALIZE FAILED: ${res.finalizeError} (NOT recorded as ${res.status})`)
   process.exitCode = 1
 } else {
-  console.log(`[persist] run=${dbRunId} status=${status} ok=${ok} failed=${failed}`)
-  if (status !== 'success') process.exitCode = 1
+  console.log(`[persist] run=${res.dbRunId} status=${res.status} ok=${res.ok} failed=${res.failed}`)
+  if (res.status !== 'success') process.exitCode = 1
 }

@@ -1,21 +1,36 @@
--- Project 4ward — 0007: ingest RPC hardening (Aegis round-3-impl re-review). Additive.
--- NOT applied until QC sign-off (we no longer apply migrations before review). Does NOT edit the
--- already-live 0006: uses create-or-replace, an additive column, and a drop/recreate of
--- start_ingestion_run (its signature changes to carry the embed run id).
+-- Project 4ward — 0007: ingest RPC hardening (Aegis round-3/4/5 reviews). Additive. UNAPPLIED until
+-- QC sign-off. Does NOT edit live 0006 (create-or-replace + additive column + drop/recreate of
+-- start_ingestion_run whose signature changes to carry the embed run id).
 --
--- Adds: normalized-vector enforcement (public.vector_norm, reject zero/non-unit), strict
--- memory/<file>.md path tied to the slug, chunks-must-be-array + chunk-key + link-element-type checks,
--- and embed_run_id provenance.
+-- Enforces: normalized vectors (public.vector_norm; reject zero/non-unit), strict memory/<file>.md path
+-- tied to slug, chunks-array + per-chunk key/type/non-null checks BEFORE casts, link-element types,
+-- embed_run_id provenance, p_kind='memory' boundary, and exact nonnegative-integer embed_counts.
 
 alter table public.ingestion_runs add column if not exists embed_run_id text;
 
 drop function if exists public.start_ingestion_run(text, jsonb);
-create or replace function public.start_ingestion_run(p_kind text, p_embed_run_id text, p_embed_counts jsonb default '{}')
+drop function if exists public.start_ingestion_run(text, text, jsonb);
+create or replace function public.start_ingestion_run(p_kind text, p_embed_run_id text, p_embed_counts jsonb)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare v_id uuid;
 begin
+  if p_kind is distinct from 'memory' then raise exception 'unsupported run kind: %', p_kind; end if;
+  if p_embed_run_id is null or p_embed_run_id = '' then raise exception 'missing embed_run_id'; end if;
+  if jsonb_typeof(p_embed_counts) is distinct from 'object' then raise exception 'embed_counts must be an object'; end if;
+  if (select count(*) from jsonb_object_keys(p_embed_counts)) <> 6
+     or exists (select 1 from jsonb_object_keys(p_embed_counts) k
+                where k not in ('accepted','quarantined','skipped','failed','embedded_vectors','chunk_rows')) then
+    raise exception 'embed_counts must have exactly the six allowed keys';
+  end if;
+  if exists (select 1 from jsonb_each(p_embed_counts) e
+             where jsonb_typeof(e.value) <> 'number'
+                or e.value::text ~ '[.eE]'                       -- reject fractions / exponent forms
+                or e.value::numeric < 0
+                or e.value::numeric <> floor(e.value::numeric)) then
+    raise exception 'embed_counts values must be nonnegative integers';
+  end if;
   insert into public.ingestion_runs (kind, status, counts, embed_run_id)
-    values (p_kind, 'running', coalesce(p_embed_counts, '{}'::jsonb), p_embed_run_id)
+    values (p_kind, 'running', p_embed_counts, p_embed_run_id)
     returning id into v_id;
   return v_id;
 end $$;
@@ -47,7 +62,6 @@ begin
   if jsonb_typeof(payload->'links') is distinct from 'array' then raise exception 'links must be an array'; end if;
   if exists (select 1 from jsonb_array_elements(payload->'links') e where jsonb_typeof(e) <> 'string') then raise exception 'links must contain only strings'; end if;
 
-  -- strict path + path<->identity (slug of filename must equal the canonical name)
   if v_path is null or v_path !~ '^memory/[A-Za-z0-9._-]+\.md$' then raise exception 'bad source_path'; end if;
   v_slug := trim(both '-' from regexp_replace(lower(regexp_replace(substring(v_path from '^memory/(.*)$'), '\.md$', '', 'i')), '[^a-z0-9]+', '-', 'g'));
   if v_slug is distinct from v_name then raise exception 'source_path slug (%) != name (%)', v_slug, v_name; end if;
@@ -58,17 +72,21 @@ begin
   if v_has_chunks then
     if v_emb is not null then raise exception 'chunked entry must have null embedding'; end if;
     for v_chunk in select value from jsonb_array_elements(payload->'chunks') as value loop
+      -- require every chunk key with the right JSON type BEFORE any cast (reject missing/null fields)
+      if not (v_chunk ? 'chunk_index' and v_chunk ? 'content' and v_chunk ? 'embedding' and v_chunk ? 'embedding_model') then raise exception 'chunk missing a required key'; end if;
       if exists (select 1 from jsonb_object_keys(v_chunk) k where k not in ('chunk_index','content','embedding','embedding_model')) then raise exception 'unexpected key in chunk'; end if;
+      if jsonb_typeof(v_chunk->'chunk_index') <> 'number' then raise exception 'chunk_index must be a number'; end if;
+      if jsonb_typeof(v_chunk->'content') <> 'string' or v_chunk->>'content' = '' then raise exception 'chunk content must be a non-empty string'; end if;
+      if jsonb_typeof(v_chunk->'embedding') <> 'string' then raise exception 'chunk embedding must be a non-null string'; end if;
+      if jsonb_typeof(v_chunk->'embedding_model') <> 'string' or (v_chunk->>'embedding_model') <> 'gemini-embedding-001' then raise exception 'bad chunk embedding_model'; end if;
       if (v_chunk->>'chunk_index')::int <> v_expected then raise exception 'non-contiguous chunk_index (expected %)', v_expected; end if;
-      if coalesce(v_chunk->>'content','') = '' then raise exception 'empty chunk content'; end if;
-      if (v_chunk->>'embedding_model') is distinct from 'gemini-embedding-001' then raise exception 'bad chunk embedding_model'; end if;
       if public.vector_dims((v_chunk->>'embedding')::public.vector) <> 768 then raise exception 'chunk embedding not 768-dim'; end if;
       v_norm := public.vector_norm((v_chunk->>'embedding')::public.vector);
       if v_norm = 0 or abs(v_norm - 1) > 1e-3 then raise exception 'chunk embedding not unit-normalized (norm=%)', v_norm; end if;
       v_expected := v_expected + 1;
     end loop;
   else
-    if v_emb is null then raise exception 'unchunked entry needs a 768-dim embedding'; end if;
+    if jsonb_typeof(payload->'embedding') is distinct from 'string' then raise exception 'unchunked entry needs a non-null string embedding'; end if;
     if public.vector_dims((v_emb)::public.vector) <> 768 then raise exception 'embedding not 768-dim'; end if;
     v_norm := public.vector_norm((v_emb)::public.vector);
     if v_norm = 0 or abs(v_norm - 1) > 1e-3 then raise exception 'embedding not unit-normalized (norm=%)', v_norm; end if;
