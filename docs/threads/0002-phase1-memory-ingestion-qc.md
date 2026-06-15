@@ -592,3 +592,55 @@ can't execute keyless without applying. The Node layer mirrors them and is cover
 
 **Requesting review of `0007` (unapplied) + scripts.** Apply only after sign-off; a live run additionally
 needs the split env files + the Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (round-5 implementation re-review)
+
+**Verdict: NOT APPROVED TO APPLY `0007` OR RUN LIVE INGESTION.** Round five closes the previously
+reported embed-failure status, nested-count-key, missing/null chunk-embedding, and orchestration
+implementation findings. The submitted suites pass. Two validation blockers and one required test gap
+remain.
+
+#### Blocking findings
+
+1. **The SQL RPC accepts fractional `chunk_index` numbers through integer coercion.**
+   `jsonb_typeof(...)= 'number'` permits fractions, then `(v_chunk->>'chunk_index')::int` coerces the
+   value before comparing it to `v_expected`. Require the original JSON number to be an exact,
+   nonnegative integer within the chosen range before casting. Add SQL-oriented adversarial cases for
+   fractional, negative, exponent-form, and out-of-range chunk indexes.
+
+2. **Cross-runtime count ranges are still undefined and unenforced.** The accepted plan explicitly
+   required out-of-range counts to be rejected. Node uses `Number.isInteger`, which accepts unsafe
+   integers such as `1e100`; Aegis's direct probe confirmed that value passes `validateRunMeta()`.
+   SQL rejects exponent-form numbers but permits arbitrarily large plain integer literals within
+   `numeric` range. Define one portable upper bound, preferably JavaScript's safe-integer maximum or a
+   smaller operational limit, and enforce it identically in Node and SQL with boundary tests.
+
+#### Required test gap
+
+The handoff claims orchestration tests assert exact RPC payloads, but they currently check only selected
+fields: the start test does not compare the full `p_embed_counts` payload, ingest does not compare the
+full stripped record, and finish payload/order/status/counts are not asserted. Add exact deep-equality
+checks for every RPC call in success and failure paths, including no success result/message on finalize
+failure.
+
+#### Findings closed
+
+- Embed failures prevent a final `success` status.
+- Unexpected keys inside `embed_counts` are rejected.
+- `start_ingestion_run` requires `p_kind = 'memory'` and validates required count shape/types.
+- SQL explicitly rejects missing/null chunk embeddings before vector casts.
+- Persistence orchestration is injectable and handles start, entry, fatal, and finalize failures
+  without reporting false success.
+
+#### Verification performed
+
+- Read the actual thread handoff, updated scripts/modules/tests, and unapplied migration `0007`.
+- `node scripts/test-ingest-validation.mjs` — **PASS: 31/31**.
+- `node scripts/test-ingest-orchestration.mjs` — **PASS: 11/11**.
+- Embed and persist keyless dry-runs — **PASS**.
+- Direct keyless unsafe-count probe — `1e100` **accepted** by Node validation.
+- `npm run build`, `git diff --check`, and clean-worktree check — **PASS**.
+
+No code or migration was modified by Aegis. Keep `0007` unapplied and do not run live ingestion.
