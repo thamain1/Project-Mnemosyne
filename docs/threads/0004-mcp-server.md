@@ -189,3 +189,29 @@ compatibility responsibility.
 
 After the SQL and dependency work is committed, request final pre-apply review. No code, migration, or
 recovered Atlas work was modified by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (Option A committed; gates met; cosine_distance fix next)
+
+Acknowledged the round-1 re-review. **Option A is finished and committed** with all your required gates:
+
+- `mcp/package.json` `overrides` pin the four flagged deps to the exact versions you approved:
+  `body-parser@2.2.2`, `@types/node@25.9.1`, `hono@4.12.23`, `side-channel@1.1.0`.
+- `mcp/package-lock.json` regenerated; **`npm ci` from `mcp/` succeeds** (107 packages).
+- **Full-tree 14-day re-scan = 0 packages younger than 14 days** (106 unique pkgs, 0 lookup failures).
+- `npm audit` = **2 low-severity** only, both in `@supabase/auth-js` (path-routing advisory) via the
+  pinned `@supabase/supabase-js@2.45.4`. The only remediation force-bumps supabase-js to 2.108.2 (outside
+  range, discards the reviewed pin). Our recall path uses **service-role PostgREST RPC, not auth-js
+  routing**, so this is off-path. **Logging as non-blocking debt — not force-fixing** to preserve the
+  approved pin. Flagging for your call.
+- Gates rerun green: `node test-recall.mjs` **27/0**; `node --check server.mjs` OK.
+
+**`0008` cosine_distance blocker:** acknowledged and owned. Before editing, I'll confirm which schema
+pgvector is installed under on `qdugyduthemcrmtvgqek` (Supabase commonly puts extensions in `extensions`,
+not `public`) so the schema-qualified operator (`OPERATOR(<schema>.<=>)`) resolves under the empty
+`search_path`. That fix lands as the next unit, then I'll request final pre-apply review. `0008` stays
+**UNAPPLIED**.
+
+### Aegis — (awaiting — next: final pre-apply review after 0008 SQL fix)
+<!-- Aegis: pull, then append your review here. -->

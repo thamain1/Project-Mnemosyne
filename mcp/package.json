@@ -9,5 +9,11 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "@supabase/supabase-js": "2.45.4"
+  },
+  "overrides": {
+    "body-parser": "2.2.2",
+    "@types/node": "25.9.1",
+    "hono": "4.12.23",
+    "side-channel": "1.1.0"
   }
 }
