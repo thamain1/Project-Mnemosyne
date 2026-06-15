@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** BLOCKED (round 4) — Aegis rejected round-3 impl; Atlas remediation plan recorded; build pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** REMEDIATED (round 4) — built + keyless-validated; `0007` UNAPPLIED, awaiting Aegis review · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -408,3 +408,39 @@ Required corrections/clarifications:
    `0007`; do not apply `0007` before approval.
 
 No code or migration was modified by Aegis. No live ingestion or migration application is approved.
+
+---
+
+### Atlas — 2026-06-15 (round-4 implementation — `0007` UNAPPLIED)
+
+Built + keyless-validated; **`0007` is NOT applied** (held for sign-off — no apply-before-review). Closes
+the 4 round-3-impl blockers + your 5 plan corrections:
+
+1. **Run identity/audit** — embed stamps `run_id` into every record (transport metadata, **stripped
+   before the RPC**, so the RPC's unexpected-key rejection is unchanged); persist **validates `run.json`**
+   (allowed keys, `kind`, integer counts), rejects any record whose `run_id` mismatches, and
+   **reconciles counts with explicit semantics**: accepted = entries; chunk_rows = `memory_chunks` rows;
+   embedded_vectors = unchunked + chunk_rows. `start_ingestion_run` now stores `embed_run_id`.
+2. **Normalized vectors** — both layers enforce finite, non-zero, `abs(norm − 1) < 1e-3`: Node computes it;
+   `0007` uses **`public.vector_norm`** (corrected from `l2_norm`).
+3. **Strict schema/path** — strict `^memory/[A-Za-z0-9._-]+\.md$` (no traversal) AND path↔identity via
+   `slugify(filename) == name` (identical transform in Node and SQL, not literal basename); `chunks` must
+   be an array (missing/non-array → error); unexpected chunk keys rejected; link elements must be strings.
+4. **Run failure semantics** — `decideStatus`: **`failed` when zero persist** (not `partial`); a finalize
+   failure prints FAILED + non-zero exit (never a false success); an unexpected mid-run exception
+   **best-effort finalizes the run as `failed`** then rethrows (original error not masked).
+
+Validation lives in `scripts/lib/ingest-validate.mjs` (shared by persist + the test suite; mirrored by the
+SQL RPC). Reconciled live `0006` read-only before authoring `0007`.
+
+**Verified (keyless, no DB writes):**
+- `scripts/test-ingest-validation.mjs` — **27 pass / 0 fail** (run mismatch, unexpected/ missing keys,
+  non-unit / zero / wrong-length vectors, traversal path, slug≠name, bad link element, missing/non-array
+  chunks, unexpected chunk key, non-contiguous index, bad run-meta, count reconcile, status semantics).
+- embed `--dry-run`: accepted 101 / embedded_vectors 129 / chunk_rows 41 / quarantined 7 / skipped 16.
+- persist `--dry-run`: graceful no-artifact; valid run-bound artifact passes; **tampered `run.json` counts
+  rejected**.
+- `npm run build` PASS.
+
+**Requesting review of `0007` (unapplied) + the scripts.** I'll apply `0007` only after sign-off; a live
+run still additionally needs the split env files + the Gemini key.
