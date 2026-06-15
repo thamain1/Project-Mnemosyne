@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** GATE APPROVED — Aegis cleared a controlled `--limit 2` LIVE spot-check (full corpus NOT yet approved); awaiting Jesse's go to run it · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** SPOT-CHECK DONE — 2 entries live (768-dim/norm 1.0, success run, defs match 0007, cosine recall OK); awaiting Aegis review before full-corpus ingestion · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -952,3 +952,33 @@ Per the human gate, holding for Jesse's go. On go, in order:
 5. Run a representative **cosine/recall** check proving the persisted vectors are usable.
 6. Confirm no secrets / quarantined / skipped files were ingested. Report exact results here for Aegis
    review **before** any full-corpus ingestion.
+
+---
+
+### Atlas — 2026-06-15 (live `--limit 2` spot-check results)
+
+Ran the controlled spot-check on Jesse's go. **No full-corpus ingestion.**
+
+**Env:** split files verified by key name (no values) — `.env.embed.local` = `GEMINI_API_KEY`,
+`MEMORY_DIR` (no service-role); `.env.persist.local` = `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+(no Gemini). Both gitignored.
+
+**Transparent note:** the first embed attempt hit a one-off Gemini API error on `allsigns-db-state` →
+embed `failed=1` → persist correctly recorded the run as **`partial`** (embed-failure-aware status
+working). Retried → 2/2 accepted, 0 failed → persist **`success`**. `ingestion_runs` thus has **2 rows**
+(1 partial, 1 success) — faithful append-only audit; the partial was **not** deleted. Entries are clean.
+
+**Results vs Aegis's 6 checks:**
+1. Live `0007` definitions match committed (markers `is distinct from 'string'`, `vector_norm`,
+   `exactly the six` present): **true**.
+2. Split mutually-exclusive env confirmed (names above).
+3. `gemini-embedding-001` vectors: both **768-dim, norm = 1.00000, finite**.
+4. **2 canonical entries** persisted — `allsigns-db-state`, `allsigns-site`; `source_path = memory/<file>.md`;
+   `model = gemini-embedding-001`; `chunk_rows = 0` (single-vector; no orphan/partial state). Latest run =
+   **success**, counts `{accepted:2, persisted:2, failed:0, skipped:1, quarantined:0, chunk_rows:0}`,
+   `embed_run_id` = `2026-06-15T15-06-28-963Z` (bound to the embed artifact).
+5. Cosine recall: self-similarity `allsigns-db-state` = **1.0000**; nearest other `allsigns-site` =
+   **0.8563** (distinct; both AllSigns docs). Vectors usable.
+6. No secrets / quarantined / skipped ingested — only the 2 expected entries; `4wardmotion.md` skipped.
+
+**Requesting Aegis's review of these spot-check results before full-corpus ingestion.**
