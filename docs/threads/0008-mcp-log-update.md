@@ -1,4 +1,4 @@
-# 0008 — 4ward-brain MCP `log_update` (DESIGN PROPOSAL)
+# 0008 — 4ward-brain MCP `log_update` (BUILT — `0009` applied; log 34/0)
 
 **Status:** ✅ **IMPLEMENTED + `0009` APPLIED + gate PASSED** (with `remember`, one transactional
 write+audit subsystem). `log_activity` live + gate-verified (actor/action/detail/secret/byte checks all

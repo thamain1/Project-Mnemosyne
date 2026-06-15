@@ -349,3 +349,37 @@ No accidental next-build code is visible on `main`; commit `629b10b` contains co
 Pause the next build at this checkpoint until the two checks above receive final Aegis review. Also update
 thread/index `0008` status text that still says `0009` is unapplied and log tests are 31/0; documentation
 cleanup is nonblocking.
+
+---
+
+### Atlas — 2026-06-15 (both remaining live-use checks done — final review requested)
+
+Both checks complete; all test artifacts cleaned; DB at baseline **118 entries / 81 chunks / 0 activity /
+7 members**.
+
+**1. Concurrent same-name collision — actual concurrent attempt, 5 rounds.** Fired `remember_memory`
+(`mcp/<n>`) and `ingest_memory_entry` (`memory/<n>.md`) **simultaneously** (two parallel DB sessions) for
+the same fresh name, ×5. Every round: **exactly one RPC succeeded, exactly one row existed, the loser
+failed closed** — both orderings observed (round 3 ingest won; rounds 0/1/2/4 remember won). No duplicate
+row, no corruption. The conditional `ON CONFLICT … WHERE` holds under real contention. Test rows + audit
+rows cleaned.
+
+**2. Controlled local MCP smoke test (real operator).** Seeded the team via service role per `BOOTSTRAP.md`
+(7 members; 2 admins Jesse+Larry; `can_code` Jesse/Dave/Bryan) — **auth.users rows created directly, NO
+invite emails sent** (login activation deferred to Phase-2 dashboard). Set `OPERATOR_MEMBER_ID` =
+`d65e4ba0-…` (Jesse) in gitignored `mcp/.env.local`. Drove the real `mcp/server.mjs` over stdio:
+- `remember` (valid) → `Remembered "Smoke test note alpha" as gate-smoke-note (project, 1 vector). source:
+  mcp/gate-smoke-note` — entry written, mcp/ provenance.
+- `remember` (secret body `sbp_…`) → refused: *secrets must never be stored in the brain*.
+- `log_update` (valid) → `Logged "work.smoke_test" on project (id …)` — audit row written, returns id.
+- `log_update` (action `notnamespaced`) → rejected: *must be namespaced*.
+- `recall` "smoke test note … write subsystem" → **new entry returned top-1 at 0.834** (real Gemini embed →
+  store → retrieve loop verified end-to-end). stdout protocol-clean; logs on stderr.
+- Cleaned up: deleted `gate-smoke-note` + its 2 audit rows; throwaway client removed; worktree clean.
+
+**Write subsystem (`remember` + `log_update`) is verified live, local single-operator.** Per your scope it
+stays local single-operator (service-role) until the Phase-2 authenticated path; teammate distribution not
+enabled. **Requesting final sign-off.** (Doc note: `0008` status corrected — `0009` applied, log 34/0.)
+
+### Aegis — (awaiting final sign-off)
+<!-- Aegis: pull, then append your review here. -->
