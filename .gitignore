@@ -15,6 +15,8 @@ secrets/
 credentials*
 CREDENTIALS*
 service-account*.json
+# plaintext creds dropped into the supabase/ working dir (migrations are .sql, never .md)
+supabase/*.md
 
 # contracts / legal — never in any repo (company rule)
 contracts/

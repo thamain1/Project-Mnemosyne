@@ -118,8 +118,11 @@ Partners must be able to **connect immediately**. Implementation:
 | Wayne Kuechler | COO |
 | Haile Hantal | CXO |
 
-Sensitivity tiers (RLS) to be finalized — e.g., all technical staff see technical data; contract
-dollar amounts / client financials restricted to admins. **TBD with Jesse.**
+**Access model (decided 2026-06-14): survivability first.** Every active team member can access
+**everything** — no sensitivity tiers enforced. A co-founder must never be locked out; that risk is
+worse than over-sharing inside a 7-person company. The `sensitivity` columns remain in the schema as
+dormant scaffolding so access can be tightened later without a migration, but nothing enforces them
+today. Secret retrieval (`get_secret()`) is open to any team member and **logged** to `activity_log`.
 
 ## 9. Future pillar — proprietary model gateway ("4ward Router")
 
@@ -141,6 +144,7 @@ fallback, and policy. Not in the continuity-core scope; captured here as a roadm
 ## 11. Open questions
 
 1. Vault backend for `secrets_vault` (Supabase Vault/pgsodium vs. external).
-2. Exact RLS sensitivity tiers per role.
+2. ~~Exact RLS sensitivity tiers per role.~~ **Resolved 2026-06-14:** none for now — full access for all
+   team members (survivability first).
 3. Do team members each get their own Supabase Auth identity now, or staged?
-4. GitHub repo name/visibility (private — contains operational context, never secrets).
+4. GitHub repo: `github.com/thamain1/Project-4ward` ✅ (confirm visibility is private).

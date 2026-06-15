@@ -132,7 +132,7 @@ create table if not exists document_chunks (
 );
 
 -- ── Secrets vault (on-demand credential sharing, audited) ─────────────────────
--- Values stay out of general tables; access is admin-gated and logged via get_secret().
+-- Values stay out of general tables; access is team-gated and logged via get_secret().
 create table if not exists secrets_vault (
   id              uuid primary key default gen_random_uuid(),
   project_id      uuid references projects (id) on delete set null,
@@ -187,12 +187,12 @@ create table if not exists activity_log (
 );
 
 -- ── Audited secret retrieval RPC ──────────────────────────────────────────────
--- Single read path: checks admin role, logs the access, returns the value.
+-- Single read path: checks team membership, logs the access, returns the value.
 create or replace function get_secret(p_id uuid)
 returns text language plpgsql security definer set search_path = public as $$
 declare v text;
 begin
-  if not is_admin() then
+  if not is_team_member() then
     raise exception 'not authorized';
   end if;
   select encrypted_value into v from secrets_vault where id = p_id;
@@ -223,50 +223,25 @@ alter table contacts       enable row level security;
 alter table deals          enable row level security;
 alter table activity_log   enable row level security;
 
--- Baseline policies. TODO(Jesse): refine sensitivity tiers per role (see VISION §8).
--- Current default: any active team member can read/write team-tier rows; admins read all.
+-- ACCESS MODEL (2026-06-14, per Jesse): SURVIVABILITY FIRST. Every active team member can
+-- access EVERYTHING — no sensitivity tiers enforced yet. A co-founder must never be locked out.
+-- The `sensitivity` columns are retained as dormant scaffolding so we can tighten later WITHOUT
+-- a schema migration; nothing enforces them today.
+--
+-- Bootstrapping note: is_team_member() reads the team_members table, which starts empty. The
+-- service role bypasses RLS, so initial seeding + Phase-1 ingestion run as service role. Once a
+-- person's team_members row exists (created via service role at onboarding), they get full access.
 
--- team_members: members see the roster; only admins manage it.
-create policy tm_select on team_members for select using (is_team_member());
-create policy tm_admin_write on team_members for all using (is_admin()) with check (is_admin());
-
--- Generic team-readable tables (non-sensitive operational data).
 do $$
 declare t text;
 begin
-  foreach t in array array['repos','databases','deployments','dev_servers','clients','contacts'] loop
-    execute format('create policy %I_team_rw on %I for all using (is_team_member()) with check (is_team_member());', t, t);
+  foreach t in array array[
+    'team_members','projects','repos','databases','deployments','dev_servers',
+    'memory_entries','documents','document_chunks','secrets_vault',
+    'clients','contacts','deals','activity_log'
+  ] loop
+    execute format(
+      'create policy %I_team_all on %I for all using (is_team_member()) with check (is_team_member());',
+      t, t);
   end loop;
 end $$;
-
--- Sensitivity-aware tables: team-tier visible to all members; restricted/admin to admins.
-create policy projects_read on projects for select
-  using (is_admin() or (is_team_member() and sensitivity = 'team'));
-create policy projects_write on projects for all
-  using (is_admin()) with check (is_admin());
-
-create policy mem_read on memory_entries for select
-  using (is_admin() or (is_team_member() and sensitivity = 'team'));
-create policy mem_write on memory_entries for all
-  using (is_team_member()) with check (is_team_member());
-
-create policy doc_read on documents for select
-  using (is_admin() or (is_team_member() and sensitivity = 'team'));
-create policy doc_write on documents for all
-  using (is_team_member()) with check (is_team_member());
-
-create policy chunk_read on document_chunks for select
-  using (exists (select 1 from documents d where d.id = document_id
-                 and (is_admin() or (is_team_member() and d.sensitivity = 'team'))));
-
-create policy deals_read on deals for select
-  using (is_admin() or (is_team_member() and sensitivity = 'team'));
-create policy deals_write on deals for all
-  using (is_team_member()) with check (is_team_member());
-
--- Secrets: NO direct table access. Reads go only through get_secret() (admin + logged).
-create policy secrets_admin_only on secrets_vault for all
-  using (is_admin()) with check (is_admin());
-
--- Activity log: members read, system writes (inserts via SECURITY DEFINER fns / service role).
-create policy activity_read on activity_log for select using (is_team_member());
