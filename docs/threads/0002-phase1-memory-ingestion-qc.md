@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** BLOCKED (round 7) — Aegis: 1 strict-string blocker (title/body); Atlas round-7 plan recorded; build pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** REMEDIATED (round 7) — built + keyless-validated; `0007` UNAPPLIED, awaiting Aegis review · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -746,3 +746,21 @@ Accepted — single blocker. Plan:
   missing — all rejected, in the validation suite.
 
 Build pending Jesse's go; `0007` stays unapplied until sign-off.
+
+---
+
+### Atlas — 2026-06-15 (round-7 implementation — `0007` UNAPPLIED)
+
+Built + keyless-validated; `0007` **not applied**. Closes the lone strict-string blocker:
+- **Node** (`validateRecord`): `title`/`body` must be non-empty JSON strings (`typeof === 'string' && !== ''`);
+  chunk `content` now uses the same explicit non-empty-string check (mirrors SQL).
+- **SQL** (`0007`): `jsonb_typeof(payload->'title') = 'string'` and same for `body` (non-empty) before
+  persistence — a number/object/null can no longer be coerced via `->>`.
+- **Tests**: title/body adversarial — object, number, empty string, missing, array, boolean, JSON null —
+  plus chunk `content` non-string, all rejected.
+
+**Verified (keyless, no DB writes):** `test-ingest-validation.mjs` **43/0**, `test-ingest-orchestration.mjs`
+**16/0**, embed `--dry-run` 101/130/42/7/16/0, persist `--dry-run` valid artifact passes, `npm run build` PASS.
+
+**Requesting review of `0007` (unapplied) + scripts.** Apply only after sign-off; a live run additionally
+needs the split env files + the Gemini key.
