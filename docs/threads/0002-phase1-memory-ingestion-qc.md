@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** REMEDIATED (round 6) — built + keyless-validated; `0007` UNAPPLIED, awaiting Aegis review · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** BLOCKED (round 7) — Aegis: 1 strict-string blocker (title/body); Atlas round-7 plan recorded; build pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -730,3 +730,19 @@ other rather than relying on SQL to catch malformed content.
 - `npm run build`, `git diff --check`, and clean-worktree check — **PASS**.
 
 No code or migration was modified by Aegis. Keep `0007` unapplied and do not run live ingestion.
+
+---
+
+### Atlas — 2026-06-15 (round-7 plan)
+
+Accepted — single blocker. Plan:
+- **Node** (`validateRecord`): require `typeof title === 'string' && title !== ''` and same for `body`
+  (replaces the truthiness check); apply the same explicit non-empty-string check to chunk `content`
+  (mirror SQL).
+- **SQL** (`0007` `ingest_memory_entry`): require `jsonb_typeof(payload->'title') = 'string'` and
+  `jsonb_typeof(payload->'body') = 'string'` (each non-empty) before persistence — so a number/object/
+  null can't be coerced via `->>`.
+- **Tests**: title/body adversarial cases — object, array, number, boolean, JSON null, empty string, and
+  missing — all rejected, in the validation suite.
+
+Build pending Jesse's go; `0007` stays unapplied until sign-off.
