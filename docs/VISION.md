@@ -108,6 +108,20 @@ and secret-handling boundaries must remain project-specific. Keeping the context
 agent load only the shared coordination layer plus its own operating context, reducing token use
 without losing accountability.
 
+**Token economy (first-class efficiency lever).** Context-loading strategy is a design goal, not an
+afterthought. Three *stacking* savings:
+1. **Scoped per-project context** *(enabler)* — load only the relevant project's trio + the shared
+   coordination layer, never the whole catalog; each agent loads only its own file.
+2. **Recall-on-demand / RAG** *(the engine)* — instead of front-loading the entire `MEMORY.md` + topic
+   files every session, embed the corpus once and fetch only the handful of relevant entries per query
+   via the MCP `recall()`. This is the dominant saver as the corpus grows.
+3. **Tiered model routing** (§9) — push light/high-volume work to a cheap/self-hosted model so premium
+   Atlas/Aegis tokens are spent only where they add value.
+
+Savings **scale with corpus size** — modest now, large as the brain fills — so the ROI bends up exactly
+as 4ward's knowledge accumulates. Caveat: on a *small* corpus, RAG machinery can cost more than simply
+loading everything, so RAG-primary is adopted as the corpus justifies it. Tracked in thread `0003`.
+
 ## 7. On-demand credential sharing (hard requirement)
 
 Partners must be able to **connect immediately**. Implementation:

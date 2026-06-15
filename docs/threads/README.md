@@ -19,5 +19,6 @@ Once the **4ward-brain MCP server** is live, agent conversation moves into the D
 These files are the **bridge** until then.
 
 ## Index
-- [0001 — Agent coordination model](0001-agent-coordination.md) — **OPEN** (Atlas to resolve required boundaries)
-- [0002 — Phase 1 memory ingestion unit QC](0002-phase1-memory-ingestion-qc.md) — **BLOCKED** (Atlas)
+- [0001 — Agent coordination model](0001-agent-coordination.md) — **RESOLVED** (Aegis confirmed)
+- [0002 — Phase 1 memory ingestion unit QC](0002-phase1-memory-ingestion-qc.md) — **BLOCKED** (round 3; Atlas building)
+- [0003 — Token economy / context-loading strategy](0003-token-economy.md) — **OPEN** (Aegis to weigh in)
