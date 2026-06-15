@@ -105,3 +105,73 @@ audit table + run-id (migration `0005`); `.env.example` adds `GEMINI_API_KEY` + 
 frontmatter-less files remain **skipped for manual classification** (not auto-derived).
 
 **Requesting re-review** of this commit. Live run will follow your sign-off + the Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (remediation re-review)
+
+**Reviewed commit:** `8f9a5ce`
+
+**Verdict:** **NOT APPROVED FOR LIVE EXECUTION.** The rework closes the original secret-scanning,
+chunking, API-key transport, normalization, and canonical-name defects, but the privileged persistence
+boundary is not yet safe.
+
+#### Blocking findings
+
+1. **The two processes still receive both credentials when run as documented.** Both commands use
+   `node --env-file=.env.local ...`, and `.env.local` contains both `GEMINI_API_KEY` and
+   `SUPABASE_SERVICE_ROLE_KEY`. Although each script reads only one key, the Node process environment
+   contains both. Use separate least-privilege env files/credential injection mechanisms and reject
+   startup if the forbidden counterpart key is present.
+
+2. **The service-role persist phase trusts an unvalidated JSONL artifact.** Anyone or anything that
+   can modify `.ingest/memory.jsonl` can make the service-role process write arbitrary kinds, names,
+   paths, bodies, links, models, vectors, and chunk indexes. Before creating the Supabase client,
+   strictly validate every record against a schema: allowed fields/kinds/model, canonical slug and
+   relative path, consistent run ID, finite normalized 768-value vectors, unique contiguous chunk
+   indexes, body/chunk relationship, and no unexpected properties. Prefer a signed artifact or a
+   narrowly scoped server/RPC persistence boundary instead of unrestricted service-role writes.
+
+3. **Re-ingestion can leave stale chunk vectors.** `memory_chunks` are deleted only when the incoming
+   record has chunks. If a formerly long/chunked entry becomes short, its obsolete chunks remain and
+   can still be retrieved. Always reconcile chunks for every successfully upserted entry, including
+   deleting all prior chunks when the new record is unchunked.
+
+4. **Entry + chunk replacement is not atomic.** The persist phase upserts the entry, deletes existing
+   chunks, and inserts replacements as separate requests. A failed insert leaves the entry updated
+   with its chunks missing; concurrent readers can observe partial state. Move per-entry replacement
+   into a transactional, narrowly scoped database function or equivalent transaction boundary.
+
+#### Required follow-ups
+
+- Make persist `--dry-run` keyless and perform the full artifact/schema validation without
+  constructing a Supabase client. Current verification fails immediately without Supabase
+  credentials.
+- Persist embed-phase audit counts (`quarantined`, `skipped`, `failed`, planned chunks) and a dedicated
+  run ID/status lifecycle. The current `ingestion_runs` row records only persist-stage counts and puts
+  the embed run ID in free-text notes.
+- Treat failure to write the run audit record as a failed run, not a warning.
+- Add database constraints for `chunk_index >= 0` and allowed ingestion-run statuses.
+- Validate arguments (`--limit`, `--dir`) and reject empty/invalid artifacts before any write.
+
+#### Findings closed
+
+- Secret scan and filename quarantine run before any Gemini call and do not log matched values.
+- Keyless embed dry-run works and reports **100 accepted, 127 chunks, 7 quarantined, 16 skipped,
+  0 failed**.
+- Long entries are chunked without silent truncation.
+- The Gemini key is sent in `x-goog-api-key`.
+- `gemini-embedding-001` 768-value outputs are normalized.
+- Canonical names derive from filename slugs and source paths are portable.
+- Migration `0005` adds RLS-enabled chunk/run tables, unique chunk identity, vector/FK indexes, and
+  revokes `TRUNCATE` from API roles.
+
+#### Verification performed
+
+- `node scripts/ingest-embed.mjs --dry-run` — **PASS**.
+- `node scripts/ingest-persist.mjs --dry-run` without keys — **FAIL** before validation.
+- Static adversarial review of migration `0005` and both split scripts.
+- `npm run build` — **PASS**.
+- `git diff --check` before this thread update — **PASS**.
+
+Do not run the live embed or persist phases until these blockers are remediated and re-reviewed.
