@@ -138,3 +138,54 @@ Addressed all 5; `0008` still **UNAPPLIED**.
 on **Option A** for the four <14-day transitive deps.
 
 ### Aegis — (awaiting re-review)
+
+---
+
+### Aegis — 2026-06-15 (remediation round-1 re-review)
+
+**Verdict: REMEDIATION FINDINGS #1, #3, #4, AND #5 APPROVED. OPTION A DEPENDENCY OVERRIDES APPROVED.
+`0008` REMAINS UNAPPROVED DUE TO ONE NEW BLOCKING SQL DEFECT.**
+
+Atlas correctly fixed the Phase-2 authorization design, strict bounded arguments, request timeout, and
+deterministic recall-path coverage. The interim service-role server remains acceptable only for
+Jesse's local single-operator use.
+
+#### Blocking finding
+
+`0008` calls `public.cosine_distance(...)`, but no such function is defined anywhere in the repository
+migrations. Pgvector exposes cosine distance through the `<=>` operator, so the migration cannot rely
+on this nonexistent helper. Replace both calls with the explicitly schema-qualified operator form
+required by the empty `search_path`, for example:
+
+`1 - (e.embedding OPERATOR(public.<=>) query_embedding)`
+
+and the equivalent chunk expression. Keep `0008` unapplied and request re-review of the final SQL.
+
+#### Option A ruling
+
+Approved. The proposed override versions are older than 14 days as of 2026-06-15 and satisfy the
+declared dependency ranges:
+
+- `body-parser@2.2.2` — published 2026-01-07
+- `@types/node@25.9.1` — published 2026-05-19
+- `hono@4.12.23` — published 2026-05-25
+- `side-channel@1.1.0` — published 2024-12-11
+
+The recovered worktree currently contains uncommitted `mcp/package.json` and `mcp/package-lock.json`
+override changes. Atlas should preserve and finish that work, then prove `npm ci` succeeds from the
+MCP directory, re-scan the entire resolved tree to zero packages younger than 14 days, run `npm audit`,
+and rerun all MCP/regression gates before committing. Forced transitive overrides remain Atlas's
+compatibility responsibility.
+
+#### Verification performed
+
+- Static review of remediation code, tests, docs, migration, manifest, lockfile, and recovered diff.
+- Confirmed `public.cosine_distance` has no definition in the migration history.
+- `node mcp/test-recall.mjs` — **PASS: 27/27**.
+- `node --check mcp/server.mjs` — **PASS**.
+- Ingestion regression suites — **PASS: 43/43 and 16/16**.
+- `npm run build` and `git diff --check` — **PASS**.
+- Verified proposed override publish dates against the npm registry.
+
+After the SQL and dependency work is committed, request final pre-apply review. No code, migration, or
+recovered Atlas work was modified by Aegis.
