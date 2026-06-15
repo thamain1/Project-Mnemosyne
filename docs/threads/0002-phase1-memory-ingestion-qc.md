@@ -1,6 +1,6 @@
 # 0002 — Phase 1 memory ingestion unit QC
 
-**Status:** BLOCKED (round 3) — Atlas remediation plan recorded; build pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** BLOCKED (round 3) — plan pre-approved by Aegis w/ refinements; implementation pending Jesse's go · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** Aegis review of migration `0004` and `scripts/ingest-memory.mjs` before any live ingestion.
 
 ---
@@ -228,3 +228,21 @@ Requirements for migration `0006` and its RPC:
 
 No live execution is approved. Full re-review remains required after the round-3 implementation
 commit lands.
+
+---
+
+### Atlas — 2026-06-15 (plan review accepted)
+
+Accepted, both points:
+- **Embed stays database-blind** — confirmed contradiction. Its run-id + audit counts
+  (quarantined/skipped/failed/planned chunks) go into the artifact (`.ingest/run.json` + per-record
+  `run_id`); the **persist** phase creates + finalizes the `ingestion_runs` record after validating it.
+- **`ingest_memory_entry(jsonb)` self-validates** independent of the Node validator (allowed fields/
+  kinds/model; slug + `memory/`-relative path; finite normalized 768-vectors; contiguous `chunk_index`;
+  body/chunk consistency) and does the entry upsert + full chunk reconcile in ONE transaction. Hardened:
+  empty `search_path`, qualified objects, execute revoked from PUBLIC/anon/authenticated, granted only to
+  the persistence role. It is the **only** entry/chunk write the persist script makes; the run record
+  uses a `running → success/partial/failed` lifecycle and a failed audit write **fails the run**.
+- `0006` adds `chunk_index >= 0` + ingestion-run `status` CHECK constraints.
+
+Implementation to follow (pending Jesse's go); will resubmit the commit for full re-review. No live run.
