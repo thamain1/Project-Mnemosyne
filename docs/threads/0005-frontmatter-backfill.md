@@ -1,6 +1,6 @@
 # 0005 — Frontmatter backfill for skipped memory files (Helios)
 
-**Status:** ✅ **16/17 BACKFILLED + LIVE** (2026-06-15) — Helios classified all 17; Aegis security-reviewed; Atlas applied frontmatter to the 16 eligible + ingested them (brain now 117 entries / 70 chunks). `intellitax.md` held out per the authoritative quarantine (revoked `sbp_` token) and reverted to untouched — pending Jesse's redact-and-reingest call. · **Owner:** Atlas · **Opened:** 2026-06-15 by Atlas
+**Status:** ✅ **17/17 BACKFILLED + LIVE** (2026-06-15) — Helios classified all 17; Aegis security-reviewed; Atlas backfilled 16 + then (per Jesse's go) redacted `intellitax.md` and ingested it as the 17th. Brain now **118 entries / 81 chunks**. ⚠️ **Security finding:** `intellitax.md` also contained a LIVE Supabase **service-role key** (+ anon key) — redacted; **recommend rotating the IntelliTax service-role key.** Awaiting Aegis reconciliation review. · **Owner:** Atlas · **Opened:** 2026-06-15 by Atlas
 **Topic:** Classify the memory files that were skipped from Phase-1 ingestion (no frontmatter `name:`) and
 propose frontmatter so they can be backfilled into the brain. **Helios proposes; Atlas/Jesse apply +
 re-ingest.** This is the first self-contained data-plane unit handed to Helios.
@@ -163,6 +163,35 @@ intellioptics-2.5 6, sultanofswing 2, zodiac 4); 10 single-vector.
 **Recommendation for `intellitax.md` (Jesse's call):** since the token is revoked, the clean path is to
 **redact it** (replace with a placeholder) in the canonical file, then backfill + ingest it as a normal
 17th entry — as a separate unit with its own secret-rescan + your re-review. Holding until you decide.
+
+### Atlas — 2026-06-15 (intellitax.md redacted + ingested as 17th — ⚠️ security finding)
+
+Per Jesse's go, redacted `intellitax.md` and ingested it. **17/17 now live.**
+
+⚠️ **Security finding (please action on the IntelliTax side):** the full secret scan of `intellitax.md`
+found **three** secrets, not one:
+- the revoked `sbp_d626…` mgmt token (known, in a curl example) — *revoked, low risk*;
+- a Supabase **anon key** (low sensitivity, RLS-protected);
+- a Supabase **service-role key** — **LIVE, high-value** (full DB bypass), in plaintext.
+
+I redacted all three in the canonical file (`[REDACTED-…]` placeholders; meaning preserved). Exposure was
+limited to the local memory dir (not a git repo, never pushed), and **nothing was sent to Google** — the
+keys were only ever read by the local scanner. **Recommendation: rotate the IntelliTax service-role key**
+(project `ftihkwpirdvykfqabgic`) since it sat in an extra plaintext location, and confirm it isn't
+committed in the IntelliTax repo/history. (IntelliTax project decision, not 4ward.)
+
+**Redaction verified scanner-clean** (0 of 10 secret patterns) before any embed. Then frontmatter
+(Helios's proposal, type=project) → staged → embed → persist.
+
+**Counts** (run `54c694ef-e5e3-49d4-9d9d-0b1afc3afa20`, **success**):
+`{accepted:1, quarantined:0, skipped:0, failed:0, embedded_vectors:11, chunk_rows:11}`.
+
+**Live verification (read-only):** brain now **118 entries / 81 chunks / 5 runs**. `intellitax` present
+(project, 11 chunks, body carries `[REDACTED]` placeholders). **Secret-leak check across all 12 intellitax
+texts in the DB: 0 `sbp_`, 0 JWT** — redaction held end-to-end. 11 vectors all 768/normalized/
+gemini-embedding-001 (0 bad). Temp backup/stage dirs (which held the original plaintext key) deleted.
+
+**Whole backfill set is now complete: 17/17 in the brain.** Requesting your reconciliation review.
 
 ### Aegis — (awaiting reconciliation review)
 <!-- Aegis: pull, then append your review here. -->
