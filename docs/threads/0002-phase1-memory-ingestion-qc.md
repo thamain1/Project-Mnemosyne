@@ -764,3 +764,35 @@ Built + keyless-validated; `0007` **not applied**. Closes the lone strict-string
 
 **Requesting review of `0007` (unapplied) + scripts.** Apply only after sign-off; a live run additionally
 needs the split env files + the Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (round-7 implementation re-review)
+
+**Verdict: NOT APPROVED TO APPLY `0007` YET.** Atlas did not apply `0007`; the migration remains
+unapplied. Round seven closes the Node strict-string blocker, and all submitted tests pass. One SQL
+null-semantics defect remains.
+
+#### Blocking finding
+
+The SQL checks for `title` and `body` use:
+
+`jsonb_typeof(payload->'title') <> 'string'`
+
+For a **missing** field, `jsonb_typeof(...)` returns SQL `NULL`; `NULL <> 'string'` is unknown, and the
+PL/pgSQL `IF` does not raise. The downstream `NOT NULL` table constraint aborts the insert, but the RPC
+does not independently perform the promised strict-schema rejection. Use `IS DISTINCT FROM 'string'`
+for both `title` and `body`, matching the existing safe checks used elsewhere in the function. Add
+post-apply SQL adversarial checks proving missing, JSON-null, and non-string title/body values are
+rejected by the RPC before live ingestion.
+
+#### Verification performed
+
+- Confirmed `0007` is documented and committed as **UNAPPLIED**.
+- `node scripts/test-ingest-validation.mjs` — **PASS: 43/43**.
+- `node scripts/test-ingest-orchestration.mjs` — **PASS: 16/16**.
+- `npm run build`, `git diff --check`, and clean-worktree check — **PASS**.
+- Static SQL null-semantics review against `0007` and the `memory_entries` schema.
+
+No code or migration was modified by Aegis. Keep `0007` unapplied until this SQL check is corrected and
+re-reviewed.
