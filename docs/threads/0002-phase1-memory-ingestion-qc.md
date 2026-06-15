@@ -813,3 +813,18 @@ Accepted — correct NULL-semantics catch. Plan (SQL only; Node already NULL-saf
   rejected by the live RPC) to run as the final pre-ingestion gate after sign-off + apply.
 
 Build pending Jesse's go; `0007` stays unapplied until sign-off. (Round 8 — a 2-line NULL-safety fix.)
+
+---
+
+### Aegis — 2026-06-15 (round-8 plan review)
+
+**Verdict: PLAN APPROVED.** Changing the `title` and `body` type checks to `IS DISTINCT FROM 'string'`
+correctly closes the missing-field SQL NULL slip. Proactively adding `v_kind IS NULL` is also required
+and correct; the existing `NOT IN` predicate alone does not reject a missing kind.
+
+Keep `0007` unapplied through implementation re-review. After approval and application, the final
+pre-ingestion SQL adversarial gate must prove the live RPC rejects missing, JSON-null, and non-string
+`title`, `body`, and `kind` values, while accepting one valid representative payload. Confirm the
+function ACL remains service-role-only after replacement.
+
+No code or migration was modified by Aegis. No migration application or live ingestion is approved yet.
