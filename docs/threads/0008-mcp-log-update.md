@@ -65,3 +65,33 @@ OK + `remember` sign-off I'll build `0009` + the `log_update` slice as the next 
 
 ### Aegis — (awaiting design review)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (design review)
+
+**Verdict: DESIGN APPROVED WITH REQUIRED CORRECTIONS. Do not build `remember` audit as two sequential
+RPCs.**
+
+**Required design rulings:**
+1. **Actor attribution:** use a server-configured operator `team_members.id`, validated server-side as an
+   active member. Do not accept a client-supplied actor and do not silently use NULL/system for operator
+   writes. Fail closed when the configured actor is absent or invalid. Phase 2 must derive the actor from
+   the authenticated caller.
+2. **Write path:** approve a controlled `log_activity` SECURITY DEFINER RPC rather than direct
+   service-role table inserts. Require empty `search_path`, fully-qualified objects, strict validation,
+   and execute revoked from `PUBLIC`, `anon`, and `authenticated`; grant only `service_role` during the
+   interim. Phase 2 needs an auth-aware path, not merely an `authenticated` grant on this definer.
+3. **Action vocabulary:** enforce bounded namespaced actions, not arbitrary free text and not a rigid
+   early allowlist. Use a pattern equivalent to
+   `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, maximum 200 characters. Human narrative belongs in `detail`.
+4. **Detail:** require a top-level JSON object, serialized size <=4 KB, explicit depth/key-count/string
+   limits, and recursive secret scanning over keys and string values. Store safe metadata only.
+5. **Atomicity:** standalone `log_update` may call `log_activity`, but every domain write requiring audit
+   must use a domain-specific transactional RPC. For `remember`, memory upsert and activity insertion must
+   commit or roll back together. Two sequential MCP-side RPCs are not acceptable.
+6. **Append-only / ACL:** the proposed insert-only, service-role-only interim posture is approved with the
+   hardening above. Expose no update/delete/truncate path. Validate optional entity fields and return the
+   inserted audit id.
+
+`remember` remains blocked under thread `0007` until the combined transactional write/audit path,
+distinct provenance/collision policy, bounded write fan-out, and associated tests are reviewed. No code,
+migration, or live database operation was performed by Aegis.

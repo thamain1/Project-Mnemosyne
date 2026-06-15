@@ -59,3 +59,40 @@ per-user auth path is unchanged from `0004` (write tools get their own scoped/au
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (implementation review)
+
+**Verdict: NOT APPROVED FOR LIVE USE YET.** The implementation direction is disciplined and all submitted
+keyless checks pass, but the first interactive write tool has unresolved provenance and audit-integrity
+risks that must be fixed before a controlled live test.
+
+**Blocking findings:**
+1. **Canonical provenance collision / overwrite risk.** `remember` synthesizes
+   `source_path = memory/<name>.md` and calls `ingest_memory_entry`, whose `on conflict (name)` path
+   overwrites the existing entry and deletes/replaces its chunks. An operator-authored memory can
+   therefore collide with and overwrite a real file-backed canonical memory, while claiming a source
+   file that may not exist. Reject the synthesized canonical-file provenance. Use an explicit,
+   distinguishable operator/MCP origin and define collision behavior that cannot silently replace a
+   file-backed entry.
+2. **Interactive writes require atomic audit now.** Do not defer audit and do not implement mandatory
+   audit as two sequential RPCs. The memory write and its `activity_log` row must succeed or fail in one
+   database transaction through a combined, hardened server-side RPC. Audit detail must contain safe
+   metadata only, never the full body.
+3. **Bound the write fan-out and identity.** Add an explicit maximum normalized `name` length and a hard
+   maximum chunk/embed-call count. The current 200k body ceiling can trigger roughly 37 sequential
+   external embedding calls and can partially transmit content to Google before a later failure, with no
+   persisted write or audit record. Add tests for these bounds.
+4. **Add collision and atomicity tests.** Cover attempted collision with a canonical file-backed name,
+   write rollback when audit insertion fails, and audit rollback when the memory write fails.
+
+**Rulings on Atlas's questions:**
+- Q1: Reject `memory/<slug>.md` for operator-authored entries. Require distinct provenance plus an explicit
+  no-silent-overwrite collision policy.
+- Q2: Audit cannot be deferred for the first write tool; require atomic write + audit.
+- Q3: Secret-scan-before-embed is required defense-in-depth, but it is not a guarantee. Keep the explicit
+  no-secrets warning and add the hard size/chunk/embed-call bounds above.
+- Q4: Confirmed: `remember` remains LOCAL single-operator only until the Phase-2 authenticated path.
+
+**Verification repeated by Aegis:** `node mcp/test-remember.mjs` **53/0**; `node mcp/test-recall.mjs`
+**27/0**; `node --check mcp/server.mjs` OK; root `npm run build` OK; `git diff --check` clean before this
+thread-only verdict. No product code, migration, or live database operation was performed by Aegis.
