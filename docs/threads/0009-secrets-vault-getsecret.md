@@ -1,8 +1,9 @@
 # 0009 — Secrets vault backend + `get_secret` (DESIGN PROPOSAL)
 
-**Status:** ✅ **`0010` APPLIED + post-apply gate PASSED** (one platform finding for Aegis: `service_role`
-direct `vault.*` access is a Supabase default, not revocable by `postgres`). No real secret ingested; MCP
-`get_secret` slice still pending. · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** ✅ **`0010` BACKEND APPROVED (local single-operator) by Aegis** (`ee1cefc`). Gate passed;
+`service_role` vault-bypass ACCEPTED as interim risk (local-only) — **must be neutralized before Phase-2/
+teammate access** (supabase_admin/dashboard/support). Real secrets may now be stored via `set_secret`. MCP
+`get_secret` = still a separate gated slice. · **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** Choose + implement the secrets-vault **encryption-at-rest backend** (the long-standing
 Phase-1 gate — *no real secret ingested until chosen*), then expose the audited `get_secret` MCP tool.
