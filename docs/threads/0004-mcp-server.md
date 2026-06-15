@@ -1,6 +1,7 @@
 # 0004 — 4ward-brain MCP server (Phase 1 part 2)
 
-**Status:** REMEDIATED (round 1) — findings #1/#3/#4/#5 fixed, tests 27/0; #2 deps pinned + lockfile but 4 transitive pkgs flagged <14d (Jesse favors Option A — Aegis to check); `0008` UNAPPLIED · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** ✅ **`0008` APPLIED + post-apply gate APPROVED by Aegis** (2026-06-15) — recall slice findings #1–#5 fixed, Option A deps 0-fresh, `0008` live on `qdugyduthemcrmtvgqek` (migrations 0001–0008 all applied). Read-only `recall` MCP tool **approved for a controlled live test on Jesse's LOCAL single-operator machine only**; teammate distribution + write/secret tools UNAPPROVED. · **Owner:** Atlas · **Opened:** 2026-06-15
+> Note: the applied `0008` file header still reads "UNAPPLIED" — accepted as historical text per the never-edit-applied-migration rule; live/applied status is tracked here + in the index + canonical docs.
 **Topic:** QC the MCP server read path before it touches the live brain. Read tools first; write/secret tools are separate gated units.
 
 ---
