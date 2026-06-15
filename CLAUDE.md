@@ -26,8 +26,9 @@ authorized teammate connect and work on demand.
 - Schema lives in `supabase/migrations/`. Apply via the **Supabase Management API** (not psql/pooler/
   CLI `db execute` — those time out in this environment).
 - Migrations are **additive**. Don't rewrite history; add a new numbered migration.
-- Embedding dimension is `vector(768)`. The embedding **model** is being confirmed before ingestion
-  (must output 768 dims; `text-embedding-004` is retired) — update consistently if it changes.
+- Embedding model is **`gemini-embedding-001` @ 768** (LOCKED 2026-06-15; GA). Pinned per-vector in
+  `embedding_model` (migration 0004). Embedding spaces are model-incompatible — a model change means a
+  scripted full re-embed. (Preview `gemini-embedding-2` deferred until GA.)
 - **Access model (survivability first):** every active team member has full read+write on knowledge/
   work tables (projects, memory, documents, deals, clients, contacts, infra registry). Only high-blast-
   radius **integrity** actions are gated: `team_members` writes are admin/service-role only (+ a
@@ -51,8 +52,9 @@ authorized teammate connect and work on demand.
 ## Working model (codified, first-class — see VISION §6)
 - **Memory cadence:** one fact per entry, kebab-case slug, index the entry. We capture *how we work*,
   not just data, so the model outlives any individual.
-- **Atlas (Claude) leads coding; Aegis (Codex) does QA/QC.** Write ONE representative unit →
-  checkpoint with Aegis → proceed (don't batch-produce before a checkpoint). See `AGENTS.md`.
+- **Atlas (Claude) leads coding; Aegis (Codex) does QA/QC; Helios (Gemini) is the data plane**
+  (embeddings/extraction/multimodal). Write ONE representative unit → checkpoint with Aegis → proceed
+  (don't batch-produce before a checkpoint). See `AGENTS.md`.
 - **Build gating:** for client engagements, proposal → approval → signature → M1 → build. (Project
   4ward is internal infra, so this gate doesn't apply to it.)
 - **Git:** commit freely; **push only when explicitly asked.**

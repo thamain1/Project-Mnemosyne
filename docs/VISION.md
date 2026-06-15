@@ -177,12 +177,12 @@ budgets:
    stable). `gemini-embedding-2` is newer but still **preview** (2026-03-10), and embedding spaces are
    model-incompatible — committing the durable corpus to a preview model risks a full re-embed. **Pin
    the model name/version and store it with the vectors**; any upgrade is a deliberate scripted re-embed.
-   *Pending Jesse's confirm to lock.*
+   **LOCKED 2026-06-15.** Stored per-vector via `embedding_model` (migration 0004).
 
 ## 12. Model strategy & accessibility (direction — 2026-06-15)
 
 **Agent division of labor.** **Atlas (Claude)** = lead engineering/reasoning. **Aegis (Codex)** =
-adversarial QA/QC. **Gemini** = the **data-plane workhorse**: embeddings (`gemini-embedding-001`),
+adversarial QA/QC. **Helios (Gemini)** = the **data-plane workhorse**: embeddings (`gemini-embedding-001`),
 document extraction + multimodal (SOWs/MOUs/specs/images; proven via DocAI→Gemini in IntelliTax),
 high-volume classification/tagging/summarization, and cheaper/faster generation where Claude-grade
 reasoning isn't required. A future self-hosted model slots *under* Gemini for the lightest, highest-

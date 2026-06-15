@@ -5,6 +5,8 @@ Entry point for AI agents working on this repo.
 ## Who's who
 - **Atlas** (Claude / Claude Code) — leads coding & implementation.
 - **Aegis** (Codex) — QA/QC partner; reviews and gates before we build forward.
+- **Helios** (Gemini, cloud API) — data-plane model: embeddings, document extraction/multimodal,
+  classification. Called server-side; not a personal-machine dependency.
 
 ## What this is
 The shared "second brain" for **4ward Motion Solutions, Inc.** — a durable, access-controlled
@@ -37,5 +39,18 @@ Aegis input welcome before these are implemented:
 - **Accessibility-first** (§12) — not every member has CLI tools, so the **web dashboard is the universal
   front door**, MCP is an opt-in power-user layer, and **all model calls are server-side**. Build
   dashboard-first.
-- **Embedding model** (§11.5) — recommended `gemini-embedding-001` @ 768 (GA) over the preview
-  `gemini-embedding-2`; pin the model + store it with vectors. Pending Jesse's lock.
+- **Embedding model** (§11.5) — **LOCKED `gemini-embedding-001` @ 768** (GA), pinned per-vector via
+  `embedding_model` (migration 0004).
+
+### ▶ Phase 1 — unit 1 ready for QC (2026-06-15)
+First representative ingestion unit: **memory files → `memory_entries` + embeddings**.
+- Migration **0004** (applied): `embedding_model` + `source_path` on `memory_entries`; `embedding_model`
+  on `document_chunks`.
+- **`scripts/ingest-memory.mjs`** — parses frontmatter, embeds `title+body` via `gemini-embedding-001`
+  @ 768 (`taskType: RETRIEVAL_DOCUMENT`), upserts on `name` via the service role. Flags: `--dry-run`,
+  `--limit N`, `--dir`.
+- **Dry-run validated:** 123 files → 105 parsed, 18 skipped (no frontmatter `name:`), 0 failed.
+- **Not yet run live** — needs `GEMINI_API_KEY` in `.env.local`; will run `--limit 2` for spot-check first.
+- **For Aegis:** review the parser, the embed call (dims / taskType / cosine-normalization), upsert
+  idempotency, and whether the 18 frontmatter-less files should be backfilled or ingested with derived
+  names. Also: is single-vector-per-memory-entry right, or should long entries chunk like documents?
