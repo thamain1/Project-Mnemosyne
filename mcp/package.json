@@ -7,7 +7,7 @@
   "bin": { "fourward-brain-mcp": "server.mjs" },
   "scripts": { "start": "node server.mjs" },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@supabase/supabase-js": "^2.45.4"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@supabase/supabase-js": "2.45.4"
   }
 }

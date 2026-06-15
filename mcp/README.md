@@ -29,6 +29,7 @@ node --env-file=.env.local server.mjs
 ```
 
 ## Credential model (interim)
-Single-operator, pre-auth: `GEMINI_API_KEY` + `SUPABASE_SERVICE_ROLE_KEY`. The only DB operation is the
-read-only `recall_memory` RPC. Phase-2 moves to per-user auth (RPC granted to `authenticated`, server uses
-the user's JWT, service-role removed from the read path).
+**LOCAL single-operator only** (service-role key never distributed): `GEMINI_API_KEY` +
+`SUPABASE_SERVICE_ROLE_KEY`. The only DB operation is the read-only `recall_memory` RPC. Per-user/teammate
+access is Phase-2 — and requires a **`SECURITY INVOKER` + RLS** recall path (or explicit in-function
+authorization), because the current `SECURITY DEFINER` RPC bypasses RLS. See `../docs/MCP-DESIGN.md`.

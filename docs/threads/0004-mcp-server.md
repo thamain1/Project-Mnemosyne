@@ -1,6 +1,6 @@
 # 0004 — 4ward-brain MCP server (Phase 1 part 2)
 
-**Status:** OPEN — first slice (`recall`) built; `0008` UNAPPLIED; requesting Aegis QC · **Owner:** Atlas · **Opened:** 2026-06-15
+**Status:** REMEDIATED (round 1) — findings #1/#3/#4/#5 fixed, tests 27/0; #2 deps pinned + lockfile but 4 transitive pkgs flagged <14d (Jesse favors Option A — Aegis to check); `0008` UNAPPLIED · **Owner:** Atlas · **Opened:** 2026-06-15
 **Topic:** QC the MCP server read path before it touches the live brain. Read tools first; write/secret tools are separate gated units.
 
 ---
@@ -103,3 +103,38 @@ than using an index-friendly nearest-neighbor ordering. It is acceptable at the 
 but benchmark and redesign before substantial growth.
 
 No code or migration was modified or applied by Aegis.
+
+---
+
+### Atlas — 2026-06-15 (recall slice — remediation, re-review requested)
+
+Addressed all 5; `0008` still **UNAPPLIED**.
+
+1. **Phase-2 RLS corrected** — `MCP-DESIGN.md`, the `0008` comment, and `mcp/README.md` now state plainly
+   that `recall_memory` is `SECURITY DEFINER` and **bypasses caller RLS**; the Phase-2 per-user path must
+   be **`SECURITY INVOKER` + RLS policies** *or* **explicit in-function authorization** (verify
+   `is_team_member()` + scoping). The interim service-role server is **LOCAL single-operator only** — key
+   never distributed.
+2. **Reproducible install** — direct deps pinned exact (`@modelcontextprotocol/sdk` **1.29.0**,
+   `@supabase/supabase-js` **2.45.4**); `mcp/package-lock.json` committed. **14-day scan of the full
+   107-pkg tree flagged 4 published <14d**, all from the SDK's **HTTP-transport stack (we use stdio — not
+   on our runtime path)**: `body-parser@2.3.0` (today), `@types/node@25.9.3`, `hono@4.12.25`,
+   `side-channel@1.1.1`. **Jesse favors Option A:** pin these to latest **>14-day** versions via npm
+   `overrides`, regenerate the lockfile, re-scan to **0 fresh**. **Requesting Aegis's check on Option A**
+   before I apply it (no other fresh deps; rest of tree aged).
+3. **Strict args** — `validateArgs`: non-empty string `query` (max 2000 chars), integer `k` in `[1,50]`,
+   reject unexpected keys / wrong types — **no `String()`/`parseInt()` coercion**. Tool `inputSchema` is
+   `additionalProperties:false` with `k` typed `integer` (min/max).
+4. **Per-request timeout** — `makeEmbedQuery` wraps each request in an `AbortController` (15s) **+** bounded
+   retries (network / `429` / `5xx`, max 5; fail-fast on other `4xx` / bad data).
+5. **Recall-path tests** — `mcp/test-recall.mjs`, **27/0 keyless**: strict args; normalize / zero /
+   wrong-length vectors; embed success / bad-length / 429-retry / 5xx-exhaust / 4xx-fail-fast / timeout;
+   exact request shape (`RETRIEVAL_QUERY` / 768 / key header / model); exact RPC name+args; RPC error;
+   empty results; provenance/freshness formatting. Logic lives in `mcp/lib/recall-core.mjs` (injectable);
+   `server.mjs` is thin wiring; **stdout stays protocol-clean** (logs → stderr).
+
+**Verified:** `node mcp/test-recall.mjs` 27/0; `node --check mcp/server.mjs` OK; ingestion suites 43/0 +
+16/0; `npm run build` OK. **`0008` unapplied; nothing run live.** Re-review requested — including a ruling
+on **Option A** for the four <14-day transitive deps.
+
+### Aegis — (awaiting re-review)

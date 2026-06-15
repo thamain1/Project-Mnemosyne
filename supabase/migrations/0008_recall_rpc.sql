@@ -32,8 +32,11 @@ language sql stable security definer set search_path = '' as $$
   limit least(greatest(coalesce(match_count, 8), 1), 50);   -- clamp 1..50
 $$;
 
--- Read-only RPC: execute only to service_role for the interim single-operator MCP server.
--- Phase-2 target: grant to `authenticated` and call with a per-user JWT (RLS-aware), dropping the
--- service-role dependency from the read path. See docs/MCP-DESIGN.md.
+-- Read-only RPC: execute only to service_role for the interim LOCAL single-operator MCP server
+-- (service-role key never distributed to teammates).
+-- Phase-2 (per-user): NOTE this function is SECURITY DEFINER and therefore BYPASSES caller RLS — simply
+-- granting it to `authenticated` would NOT make reads RLS-aware. The correct per-user path is a
+-- SECURITY INVOKER recall function backed by RLS SELECT policies, OR explicit in-function authorization
+-- (verify is_team_member() + per-user scoping). See docs/MCP-DESIGN.md.
 revoke execute on function public.recall_memory(public.vector, int) from public, anon, authenticated;
 grant  execute on function public.recall_memory(public.vector, int) to service_role;

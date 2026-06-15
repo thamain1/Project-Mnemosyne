@@ -21,9 +21,16 @@ the integrity/secret boundary.
 - **Interim (now, single-operator, pre-auth):** the server holds `GEMINI_API_KEY` (to embed the query)
   and `SUPABASE_SERVICE_ROLE_KEY`. Its only DB op is the **read-only `recall_memory` RPC** (SECURITY
   DEFINER, SELECT-only, granted to `service_role`). No writes occur on the recall path.
-- **Phase-2 target:** per-user Supabase Auth. `recall_memory` is granted to `authenticated`; the server
-  calls it with the **user's JWT** (RLS-aware), and the service-role key is **removed** from the read
-  path. Write/secret tools get their own scoped paths + audit.
+- **Phase-2 target:** per-user Supabase Auth. **Correction (Aegis):** `recall_memory` is `SECURITY
+  DEFINER`, which **bypasses caller RLS** — granting it to `authenticated` + calling with a user JWT does
+  **NOT** make its reads RLS-aware. The correct Phase-2 path is one of: **(a)** a **`SECURITY INVOKER`**
+  recall function backed by proper RLS `SELECT` policies on `memory_entries`/`memory_chunks` (reads run
+  as the calling user); or **(b)** keep `SECURITY DEFINER` but perform **explicit authorization/filtering
+  inside** the function (e.g. verify `is_team_member()` and apply per-user scoping). Either way the server
+  uses the user's JWT and the service-role key leaves the read path. Write/secret tools get their own
+  scoped paths + audit.
+- **The interim service-role server is LOCAL single-operator only — its service-role key is never
+  distributed to teammates.** Multi-operator/teammate access waits for the Phase-2 path above.
 - **Reconciling the Helios boundary:** the ingestion split (Gemini-only embed / service-role-only persist)
   exists because bulk ingestion shouldn't co-locate both. The *interactive* recall path embeds + reads in
   one process by necessity, but it is **read-only** and will shed service-role at Phase 2. Open question

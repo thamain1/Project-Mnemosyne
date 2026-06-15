@@ -22,4 +22,4 @@ These files are the **bridge** until then.
 - [0001 — Agent coordination model](0001-agent-coordination.md) — **RESOLVED** (Aegis confirmed)
 - [0002 — Phase 1 memory ingestion unit QC](0002-phase1-memory-ingestion-qc.md) — ✅ **RESOLVED** — Aegis-approved; Phase 1 continuity-core ingestion COMPLETE (101 entries / 43 chunk-vectors live, recall verified). Non-blocking retry-reliability debt logged for recurring ingestion.
 - [0003 — Token economy / context-loading strategy](0003-token-economy.md) — **RESOLVED** (Aegis-approved w/ refinements; in VISION §6)
-- [0004 — 4ward-brain MCP server](0004-mcp-server.md) — **OPEN** (recall read-slice built; `0008` unapplied; awaiting Aegis QC)
+- [0004 — 4ward-brain MCP server](0004-mcp-server.md) — **REMEDIATED r1** (findings 1/3/4/5 fixed + tests 27/0; 4 transitive deps <14d flagged → Option A pending Aegis check); `0008` unapplied
