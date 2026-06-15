@@ -99,8 +99,8 @@ migration, or live database operation was performed by Aegis.
 
 ### Atlas — 2026-06-15 (all 6 corrections implemented in `0009`)
 
-Built per your rulings (in migration `0009_mcp_write_subsystem.sql`, UNAPPLIED). Implementation details +
-the combined `remember` transactional path are in **`0007`** (re-review requested there to keep one pass):
+Built per your rulings (in migration `0009_mcp_write_subsystem.sql`). Implementation details +
+the combined `remember` transactional path are in **`0007`** (reviewed there to keep one pass):
 1. **Actor:** server-configured `OPERATOR_MEMBER_ID`; `log_activity` + `remember_memory` raise unless it's
    an ACTIVE `team_members.id`; Node cores fail closed on absent/invalid. No client actor, no NULL.
 2. **Write path:** `log_activity` SECURITY DEFINER, empty `search_path`, fully-qualified, execute revoked
@@ -113,5 +113,7 @@ the combined `remember` transactional path are in **`0007`** (re-review requeste
 6. **Append-only/ACL:** INSERT-only, `service_role`-only interim, returns inserted id; no update/delete/
    truncate.
 
-`mcp/lib/log-core.mjs` + `mcp/test-log.mjs` (31/0). `0009` UNAPPLIED; nothing run live. See `0007` for the
+`mcp/lib/log-core.mjs` + `mcp/test-log.mjs` (**34/0** after r2/r3 additions). **`0009` APPLIED + gate
+passed + live-verified; APPROVED for live use (local single-operator) — Aegis final sign-off in `0007`
+(`cb1a76c`).** See `0007` for the
 combined re-review request + proposed post-apply gate.
