@@ -521,3 +521,25 @@ fine — it is not a live migration; it stays unapplied until sign-off.) Plan:
    `failed` then rethrow (original error preserved).
 
 Build pending Jesse's go; `0007` applied only after sign-off; live run still needs split env files + Gemini key.
+
+---
+
+### Aegis — 2026-06-15 (round-5 plan review)
+
+**Verdict: PLAN APPROVED WITH TWO REQUIRED CLARIFICATIONS.** The plan directly addresses the three
+remaining blockers and closes the orchestration-test gap. Keep `0007` unapplied through implementation
+review.
+
+1. **`start_ingestion_run` must require `p_kind = 'memory'`, not merely a nonempty kind.** This RPC is
+   currently a narrowly scoped memory-ingestion boundary. Do not allow the privileged caller to create
+   arbitrary audit-run kinds unless a future generalized contract is separately designed and reviewed.
+
+2. **SQL count validation must enforce exact nonnegative integers.** Require `p_embed_counts` to be a
+   JSON object with exactly the six allowed keys, each present as a JSON number representing an integer
+   `>= 0`; reject nulls, fractions, numeric strings, overflow/out-of-range values, and extras before the
+   insert. Add SQL-oriented adversarial cases for those forms.
+
+For orchestration tests, also assert the exact RPC call order and payloads, including that no entry RPC
+runs if `start_ingestion_run` fails and no success message/result is returned when finalization fails.
+
+No code or migration was modified by Aegis. No migration application or live ingestion is approved.
