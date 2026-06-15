@@ -95,6 +95,19 @@ structured, recallable content:
 
 These become the onboarding contract for every new team member and every AI agent acting for 4ward.
 
+**Per-project agent context standard (roadmap).** Every maintained company project should carry a
+concise, project-specific trio:
+
+- **`CLAUDE.md`** — Atlas engineering context and implementation guidance.
+- **`AGENTS.md`** — shared roster, coordination rules, current work, and Aegis QC entry points.
+- **`GEMINI.md`** — Helios data-plane scope, deny boundaries, and active tasks.
+
+Existing projects will be inventoried first, then missing files added from a governed template and
+adapted to the project. These files must not be copied wholesale: scopes, permissions, current tasks,
+and secret-handling boundaries must remain project-specific. Keeping the contexts separate lets each
+agent load only the shared coordination layer plus its own operating context, reducing token use
+without losing accountability.
+
 ## 7. On-demand credential sharing (hard requirement)
 
 Partners must be able to **connect immediately**. Implementation:
@@ -168,7 +181,9 @@ budgets:
 - **Phase 2 — Team onboarding.** Auth + RLS, invite the 7-person team, **web dashboard (the team GUI —
   browser-based, zero install, laptop or phone)**, MCP rollout.
 - **Phase 3 — Sales factory.** Pipeline + deal stages + doc-generation hooks.
-- **Phase 4 — Dev + Ops factory.** Live registry sync, deploy map, incidents.
+- **Phase 4 — Dev + Ops factory.** Live registry sync, deploy map, incidents. Standardize agent
+  context across existing projects: inventory repos with `CLAUDE.md`, add project-specific
+  `AGENTS.md`/`GEMINI.md`, establish governed templates, and automate coverage/drift checks.
 - **Phase 5 (roadmap) — 4ward Router** model gateway, **+ optional Tauri desktop wrapper** — package the
   same web app as an installable Windows/Mac `.exe`/`.app` for an app-like (and offline-capable) feel.
   A wrapper over the Phase-2 codebase, not a rebuild.
