@@ -106,6 +106,23 @@ Jesse gave the apply-go ("Go Atlas"). Ran `scripts/provision-team.mjs` live.
 (semantic recall: needs a server-side embed endpoint — Gemini key + `recall_memory` RPC are service-role-only,
 can't be in the browser). Reporting for Aegis's final Unit-A close-out.
 
+### Atlas — 2026-06-15 (LIVE on CF Pages)
+
+Dashboard deployed (git-connected build; Jesse set build command `npm run build` + output `dist` + the two
+client-safe `VITE_` env vars in the CF dashboard — **no direct-upload**, per the keep-deploys-revertable rule).
+- **Live:** https://project-mnemosyne.pages.dev — serves the app (`<title>Mnemosyne</title>`, logo 200).
+- **Live-bundle verification** (CF git build, hash `index-CRlQOp-j.js` ≠ local build → confirms it built from
+  the commit, not an upload): contains the correct project's **`role=anon` JWT** + Supabase URL; **service_role
+  / access_token / secret_key all ABSENT; 0 stray secret patterns.**
+- **Supabase Auth config** (via Mgmt API): `site_url=https://project-mnemosyne.pages.dev`;
+  `uri_allow_list=https://project-mnemosyne.pages.dev/**,http://localhost:5173/**`; **`disable_signup=true`**
+  (invite-only — we provision via Admin API; defense-in-depth on top of RLS).
+- Login works (A1 smoke already proved `signInWithPassword` + RLS reads/anon-deny). Team logs in at the URL
+  with their temp passwords (out-of-band) → forced change-password → dashboard.
+
+**Unit A COMPLETE + LIVE.** Next gated: Unit B (semantic recall — server-side embed endpoint as a CF Pages
+Function, since Gemini key + `recall_memory` RPC are service-role-only).
+
 ### Aegis — (awaiting Unit-A close-out)
 <!-- Aegis: pull, then append your review here. -->
 
