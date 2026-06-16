@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthProvider'
 import { groupEntries, tagValue, hasTag } from '../lib/memoryGroups'
+
+// Code-split: the force-graph lib (~190 KB) loads only when the graph view is opened, not on initial page load.
+const MemoryGraph = lazy(() => import('../components/MemoryGraph'))
 
 type Entry = {
   name: string
@@ -10,6 +13,7 @@ type Entry = {
   source_path: string | null
   updated_at: string
   tags?: string[] | null
+  links?: string[] | null
 }
 type Hit = Entry & { similarity: number; matched_via?: string }
 
@@ -38,6 +42,7 @@ export default function Memories() {
   const [filter, setFilter] = useState('')
   const [reusableOnly, setReusableOnly] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const [view, setView] = useState<'graph' | 'cards'>('graph')
 
   // semantic search (explicit; server-side via /api/recall)
   const [sq, setSq] = useState('')
@@ -53,7 +58,7 @@ export default function Memories() {
     // Select `tags` if the column exists (migration 0011); gracefully fall back if it doesn't yet, so the
     // frontend is decoupled from the migration — tag features (exact grouping, repo badge, code library)
     // light up automatically once 0011 + backfill land, with no redeploy.
-    const base = 'name, title, kind, source_path, updated_at'
+    const base = 'name, title, kind, source_path, updated_at, links'
     ;(async () => {
       const load = (cols: string) =>
         supabase.from('memory_entries').select(cols).order('updated_at', { ascending: false })
@@ -154,7 +159,7 @@ export default function Memories() {
         </form>
         {searchErr && <p className="text-sm text-red-400">{searchErr}</p>}
 
-        {/* kind tabs + quick filter (browse mode only) */}
+        {/* kind tabs + view toggle + quick filter (browse mode only) */}
         {!inSearch && (
           <div className="flex items-center justify-between gap-3">
             <div className="flex gap-1">
@@ -165,8 +170,18 @@ export default function Memories() {
                 </button>
               ))}
             </div>
-            <input placeholder="Quick filter…" value={filter} onChange={(e) => setFilter(e.target.value)}
-              className="w-48 rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <div className="flex items-center gap-2">
+              <div className="flex gap-0.5 rounded-lg border border-slate-700 p-0.5">
+                {(['graph', 'cards'] as const).map((v) => (
+                  <button key={v} onClick={() => setView(v)}
+                    className={`px-2.5 py-1 rounded-md text-xs capitalize transition ${view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-100'}`}>
+                    {v}
+                  </button>
+                ))}
+              </div>
+              {view === 'cards' && <input placeholder="Quick filter…" value={filter} onChange={(e) => setFilter(e.target.value)}
+                className="w-44 rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />}
+            </div>
           </div>
         )}
 
@@ -190,8 +205,15 @@ export default function Memories() {
           : <div className={GRID}>{hits!.map((r) => <EntryCard key={r.name} r={r} />)}</div>
       )}
 
-      {/* BROWSE — grouped cards tile across columns; an expanded group spans the full row */}
-      {!inSearch && (
+      {/* BROWSE — GRAPH view (constellation by project/topic) */}
+      {!inSearch && view === 'graph' && !loading && (
+        browse.length === 0
+          ? <p className="px-4 py-6 text-sm text-slate-500">No entries.</p>
+          : <Suspense fallback={<p className="px-4 py-6 text-sm text-slate-500">Loading graph…</p>}><MemoryGraph rows={browse} onOpen={openEntry} /></Suspense>
+      )}
+
+      {/* BROWSE — CARDS view: grouped cards tile across columns; an expanded group spans the full row */}
+      {!inSearch && view === 'cards' && (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 items-start">
           {groups.map((g) => {
             const open = openGroups[g.key] ?? false
