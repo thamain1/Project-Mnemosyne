@@ -50,15 +50,19 @@ export default function Memories() {
   const [bodyLoading, setBodyLoading] = useState(false)
 
   useEffect(() => {
-    supabase
-      .from('memory_entries')
-      .select('name, title, kind, source_path, updated_at, tags')
-      .order('updated_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setErr(error.message)
-        else setRows((data ?? []) as Entry[])
-        setLoading(false)
-      })
+    // Select `tags` if the column exists (migration 0011); gracefully fall back if it doesn't yet, so the
+    // frontend is decoupled from the migration — tag features (exact grouping, repo badge, code library)
+    // light up automatically once 0011 + backfill land, with no redeploy.
+    const base = 'name, title, kind, source_path, updated_at'
+    ;(async () => {
+      const load = (cols: string) =>
+        supabase.from('memory_entries').select(cols).order('updated_at', { ascending: false })
+      let res: { data: unknown; error: { message: string } | null } = await load(`${base}, tags`)
+      if (res.error) res = await load(base) // tags column not present yet (pre-0011)
+      if (res.error) setErr(res.error.message)
+      else setRows((res.data ?? []) as Entry[])
+      setLoading(false)
+    })()
   }, [])
 
   // browse set: kind filter + quick text filter
@@ -186,17 +190,17 @@ export default function Memories() {
           : <div className={GRID}>{hits!.map((r) => <EntryCard key={r.name} r={r} />)}</div>
       )}
 
-      {/* BROWSE — grouped, collapsible drill-down */}
+      {/* BROWSE — grouped cards tile across columns; an expanded group spans the full row */}
       {!inSearch && (
-        <div className="space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 items-start">
           {groups.map((g) => {
-            const open = openGroups[g.key] ?? (groups.length <= 4)
+            const open = openGroups[g.key] ?? false
             return (
-              <div key={g.key} className="rounded-lg border border-slate-800 overflow-hidden">
+              <div key={g.key} className={`rounded-lg border border-slate-800 overflow-hidden ${open ? 'sm:col-span-2 lg:col-span-3' : ''}`}>
                 <button onClick={() => setOpenGroups((o) => ({ ...o, [g.key]: !open }))}
                   className="w-full flex items-center gap-2 px-4 py-2.5 bg-slate-900/50 hover:bg-slate-900 transition text-left">
                   <span className="text-slate-500 text-xs">{open ? '▾' : '▸'}</span>
-                  <span className="text-sm font-medium">{g.label}</span>
+                  <span className="text-sm font-medium truncate">{g.label}</span>
                   <span className="ml-auto text-xs text-slate-500">{g.items.length}</span>
                 </button>
                 {open && <div className={`border-t border-slate-800 p-3 ${GRID}`}>{g.items.map((r) => <EntryCard key={r.name} r={r} />)}</div>}
