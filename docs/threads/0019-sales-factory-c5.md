@@ -1,8 +1,9 @@
 # 0019 — Sales Factory C5: CRM (deals pipeline + clients + deal↔doc linkage)
 
-**Status:** 🟢 **C5.1 Aegis-APPROVED for controlled apply + smoke; tightenings folded in.** Migration `0015`
-(UNAPPLIED) + 3 CRM write endpoints + CRM pipeline UI. Awaiting Jesse go to apply + smoke. · **Owner:** Atlas
-· **Opened:** 2026-06-16
+**Status:** ✅ **C5.1 LIVE — Aegis-approved; `0015`+`0016` applied; smoke 22/22.** CRM deals pipeline +
+clients + deal↔doc linkage; CRM tables write-locked (members read-only, writes via actor=uid RPCs); a
+partial-update bug found by the smoke was fixed in `0016` (PATCH semantics). Next: C5.2 (contacts + per-deal
+activity). · **Owner:** Atlas · **Opened:** 2026-06-16
 
 **Topic:** The last sales-factory piece — a CRM. Clients/contacts/deals are scaffolded (RLS, `deal_stage`
 enum) but empty. C5.1 delivers a **deals pipeline (kanban by stage) + clients CRUD + deal↔document linkage**;
@@ -146,3 +147,34 @@ recommended tightenings + the sequencing fix:
 
 `npm run build` green. `0015` still UNAPPLIED — applying on Jesse go, then the full smoke (incl. the
 member-cannot-direct-write proof on clients/contacts/deals).
+
+### Atlas — 2026-06-16 (applied + live smoke PASSED — C5.1 LIVE)
+Jesse gave the go. Applied **`0015`** then **`0016`** (Management API, both HTTP 201). Schema verified
+(`scripts/verify-c5-schema.mjs`): the 3 RPCs are SECURITY DEFINER + `search_path=""` + execute = service_role
+only; `documents.deal_id` present; clients/contacts/deals are **SELECT-only** with **zero** anon/authenticated
+ins/upd/del grants.
+
+**Bug caught by the smoke → fixed in `0016`:** `upsert_deal`'s UPDATE overwrote every column, so a partial
+payload (stage-move sending `{id,title,stage}`) silently NULLed unsent fields (amount). The live UI resends the
+full row so it was masked, but the RPC shouldn't drop data. `0016` (`create or replace` both upsert RPCs)
+switches the UPDATE branch to **PATCH semantics** — a column changes only if its key is present (present+null
+clears; absent keeps). INSERT unchanged.
+
+Full Aegis gate via `scripts/smoke-crm.mjs` — **22/22 pass** (after `0016`):
+- **Bypass denial:** member direct insert on clients/contacts/deals + update on clients all **fail `42501`**.
+- **Lifecycle via endpoints:** create client (201) → create deal (201) → edit deal (200) → move stage (200);
+  the deal correctly reflects edits (**stage=proposal, amount=6000 preserved** — the `0016` fix); link a real
+  document to the deal (deal_id set) → detach (deal_id null).
+- **Audit:** `crm.client_save` / `crm.deal_save` / `crm.document_link` rows attributed to the actor uid.
+- **Fail-closed:** missing/invalid JWT → 401; non-member → 403; bad stage / missing title / bad uuid /
+  negative amount / nonexistent owner / extra key / missing client name / bad document link → 400.
+- **Cleanup verified:** 0 residual clients/deals, 0 docs still linked, borrowed ingested doc's deal_id restored,
+  0 smoke users.
+
+**C5.1 (CRM: deals pipeline + clients + deal↔doc linkage) COMPLETE + LIVE.** Migrations 0001–0016 applied.
+Residual deferrals (Aegis): per-user rate limiting; **C5.2 = contacts CRUD + per-deal activity** (separate
+gated slice; contacts table already write-locked by 0015). The sales factory (RETRIEVE C1/C2 + CREATE
+C4.1/C4.2 + CRM C5.1) is functionally complete.
+
+### Aegis — (close-out optional; C5.1 live-verified)
+<!-- Aegis: pull, then append your review here. -->
