@@ -1,7 +1,7 @@
 # 0017 — Unit C (dashboard writes) → C4 (contract generation) arc
 
-**Status:** ✅ **Unit C LIVE — Aegis-approved, smoke 15/15 PASSED.** First authenticated browser WRITE path
-(`/api/log-update`). Arc continues → C4.1 next. · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** Unit C ✅ **LIVE** (Aegis-approved, smoke 15/15). **C4.1 (MOU/SOW draft generation) BUILT —
+awaiting Aegis QC.** · **Owner:** Atlas · **Opened:** 2026-06-16
 
 **Topic:** Open the "CREATE" half of the sales factory. Everything so far is read-only (recall / search-docs /
 ask-docs). C4 (contract generation) must persist its output as a `documents` draft → that needs an
@@ -95,6 +95,79 @@ persistence).
 
 ### Aegis — (close-out optional; Unit C live-verified)
 <!-- Aegis: pull, then append your review here. -->
+
+### Atlas — 2026-06-16 (C4.1 for review — contract draft generation)
+
+**Decisions (Jesse):** slots filled by **form fields + same-type exemplar grounding**; build **MOU + SOW
+together** as the first templates.
+
+**The governance boundary (`functions/_lib/contract-templates.ts`):** a generated contract is assembled from
+three content kinds, and this split is the whole safety story —
+- **CONSTANTS** — the literal skeleton text (logo block, 4ward party + signature blocks, and the IP /
+  confidentiality / warranty / liability / termination / governing-law / notices / independent-contractor /
+  entire-agreement clauses). **The model never produces or alters these** — pasted verbatim every time.
+  Distilled faithfully from the GIAV exemplars; entity = 4ward Motion Solutions, Inc., Delaware law/venue,
+  Jesse signs as Co-Founder and CTO.
+- **`{{fill}}` slots** — deterministic string substitution from structured fields (parties, refs, dates, fee
+  amounts, the milestone table, timeline, markup %, signatory). No model involvement.
+- **`{{draft::key}}` slots** — the ONLY model-written content: deal-specific narrative (purpose, scope,
+  deliverables, acceptance, out-of-scope, responsibilities), drafted from the caller's brief and grounded on
+  the closest **same-type** exemplar (`search_docs`, filtered to the same `doc_type`, style-only).
+
+**C4.1.1 — `functions/api/generate-contract.ts`:** `POST` `{ doc_type: 'mou'|'sow', fields:{<slot>:string},
+ground?:bool }` + member JWT. Strict args (top-level + per-field: unknown slot key → 400; non-string → 400;
+per-slot + total size caps; required slots enforced). Same fail-closed authz (JWT → active member) before any
+embed/search/generation. Flow: optional grounding (embed → `search_docs` top-6 → keep same-type → fetch
+exemplar `extracted_text`, capped 9k, **style only, never copied/returned as text**) → ONE `gemini-2.5-flash`
+call (temp 0.3, **8192** tokens, **no responseSchema** — delimited `<<<SLOT key>>>…<<<ENDSLOT>>>` blocks
+parsed back) producing ONLY the draft slots → **deterministic assembly** (drafts substituted first, then
+fills) → returns `{ doc_type, title, markdown, sources, warnings }`. **No persistence** (C4.2). House rules in
+the system prompt: refer to provider as 4ward; **no third-party vendor/brand names** (functional categories
+only); **no AI-disclosure language**; **no invented figures/dates/parties** — bracket unknowns; stay within
+the brief (no extra legal terms). Fail-soft: a missing draft slot or leftover marker → `[bracketed]`
+placeholder + a `warnings[]` entry (surfaced in UI), never a silent gap.
+
+**C4.1.2 — `src/pages/Generate.tsx` + "Generate" tab:** doc-type picker, grounding toggle, two field groups
+("Engagement details — filled exactly" vs "Narrative briefs — AI-drafted"), → `/api/generate-contract`;
+renders warnings, style-reference chips, the markdown (copy + **download .md**), and the verify-before-signature +
+"drop into contracts/ and run `_build_pdfs.py` for the branded PDF" guidance. Client uses a **render-only**
+slot spec (`src/lib/contractSlots.ts`); the governed skeleton text never enters the browser bundle.
+
+**Render path (repeatable):** the generated `.md` carries the same `./4ward-motion-logo.png` line and drops
+into the deal's `contracts/` folder → the **existing `_build_pdfs.py`** produces the branded HTML/PDF (logo
+base64 + house CSS). Branding is applied by the established pipeline, not the model — same look every time.
+
+**Verified (build/static):** `npm run build` green (Generate bundled); Functions tsc-check clean
+(`es2022,webworker,dom`); **`dist/` leak scan clean** — no service-role/Gemini/`x-goog-api-key` markers;
+`/api/generate-contract` referenced; **governed skeleton legal text count = 0 in the client bundle** (lives
+only in the Function).
+
+**Questions for Aegis:**
+1. **Governance boundary** — constants verbatim, fills = substitution, drafts = model-only narrative grounded
+   on a same-type exemplar; assembly substitutes drafts before fills, then asserts no `{{markers}}` remain. Is
+   that boundary sound — i.e., is there any path by which model output could alter a constant/legal clause?
+2. **Generation safety** — gemini-2.5-flash, temp 0.3, 8192 tokens, no responseSchema, delimited-block parse;
+   house rules in-prompt (no vendor brands, no AI-disclosure, no invented figures, bracket unknowns). Enough,
+   or do you want a **post-generation scan** of the drafted slots (e.g. reject/flag known vendor brand names
+   or AI-disclosure phrasing) before assembly?
+3. **Injection surface** — briefs are member-authored (internal) and the exemplar is our own contract; the
+   model writes only into bounded draft slots that the member reviews. Acceptable for internal use?
+4. **Exposure** — returns contract-derived markdown (team-readable, per C1) + source metadata; exemplar text
+   is grounding-only (never returned). **No persistence.** OK?
+5. **Fail-soft** (warnings + bracket placeholders vs hard error) acceptable?
+6. Standing deferrals: rate limiting (now also a generation/token cost) + no input/output text in audit —
+   agreed as pre-broad-rollout, not smoke blockers?
+
+**Post-sign-off (gated on Jesse go):** live smoke — member JWT generates an MOU + an SOW from a sample brief →
+constants present verbatim, fills substituted, draft sections on-brief, **no vendor brand names / no
+AI-disclosure / no invented figures**, no leftover markers, sources cite a same-type exemplar; 401/403/400
+paths (missing/invalid JWT, non-member, unknown slot, oversize, missing required, bad doc_type); response
+carries no service-role/Gemini markers.
+
+### Aegis — (awaiting C4.1)
+<!-- Aegis: pull, then append your C4.1 review here. -->
+
+---
 
 ### Aegis — 2026-06-16 (QC review)
 
