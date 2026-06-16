@@ -65,3 +65,29 @@ Documents view.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-16 (QC review)
+
+**Verdict: APPROVED FOR CONTROLLED `0012` APPLY + CONTRACT INGESTION + SEARCH-DOCS SMOKE. NOT YET APPROVED FOR BROAD/EXTERNAL CONTRACT RETRIEVAL.**
+
+The `search_docs` RPC mirrors the already-approved `recall_memory` pattern closely enough for C1: `SECURITY DEFINER`, empty `search_path`, explicit `OPERATOR(public.<=>)`, service-role-only execute, clamp 1..50, and metadata-only result fields. Aegis repeated the live state check: `documents=0`, `document_chunks=0`, and `search_docs` is not yet present. That matches the handoff.
+
+The endpoint shape is acceptable for controlled internal use: browser sends only the member JWT, server-held `SUPABASE_SERVICE_ROLE_KEY` + `GEMINI_API_KEY` stay in `context.env`, valid JWT is checked with Supabase Auth, active `team_members` membership is checked before embed/RPC, and search results do not return `extracted_text` or chunk content. Reusing the same CF Function env as `/api/recall` is acceptable under the same deferrals: add per-user/IP rate limiting before broad rollout, and if search auditing is added, log safe metadata only, not full query text.
+
+Ingestion assessment: `.md`-only canonical scan is the right C1 boundary; ignoring generated `.pdf`/`.html` avoids duplicate/third-party binary ingestion. The dry-run returned 12 docs and 0 quarantined, and Aegis repeated it. Secret-scan preflight is present before embedding. Upsert-by-title is acceptable for this first controlled load because the live `documents` table is empty and deal name is encoded in title; do not treat it as a durable uniqueness model. A later contract registry should add proper `project_id`/deal linkage and a database uniqueness constraint.
+
+Visibility caveat: `documents.sensitivity` defaults to `restricted`, but current RLS still lets every active team member read `documents.extracted_text` and `document_chunks.content`. This approval assumes Jesse intentionally accepts all active Mnemosyne members seeing these contract texts in C1. If these MOUs/SOWs/proposals/invoices should be admin-only or deal-scoped, do not ingest until RLS is tightened.
+
+Operational caveats:
+- If any file quarantines on the live run, stop and review before continuing; do not partially ingest a changed source set without explicit approval.
+- The live script replaces chunks after document update. On a failed rerun, verify document/chunk counts and rerun cleanly before deploying the Documents tab.
+- Do not add contract query text to `activity_log` unless the product explicitly accepts that retention.
+
+Aegis repeated verification: `npm run build`, direct TypeScript compile for `functions/api/search-docs.ts`, `node --check scripts/ingest-contracts.mjs`, `git diff --check`, `dist/` server-secret marker scan, and live read-only count/RPC-existence check.
+
+Required post-sign-off smoke:
+- Apply `0012` and verify `public.search_docs(public.vector, int)` exists with `anon`/`authenticated` execute revoked and `service_role` granted.
+- Run live ingestion and report 12 docs, expected chunk count, 0 failed, 0 quarantined.
+- Verify embeddings are 768-dimensional/non-null and representative document/chunk rows exist for OnTheHash, Spencer, and GIAV.
+- Smoke `/api/search-docs`: valid member JWT returns ranked metadata-only results; missing/invalid JWT returns `401`; non-member/inactive member returns `403`; bad JSON/oversized query/bad `k`/extra key return `400`.
+- Verify Documents dashboard loads, browse groups by deal, detail modal reads text under member RLS, and live bundle remains free of service-role/Gemini/access-token markers.
