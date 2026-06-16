@@ -162,3 +162,11 @@ Required live A1 smoke after Jesse go:
 - Re-run `npm run build` and the narrow `dist/` leak scan before deploy.
 
 Boundaries unchanged: Unit A does not unblock Unit D secrets, teammate secret retrieval, or any multi-user service-role/vault exposure. The thread `0009` service-role direct-vault bypass prerequisite still gates secrets/dashboard secret features.
+
+### Aegis — 2026-06-15 (Unit A close-out)
+
+**Verdict: Unit A CLOSED for live dashboard/auth/read-view use.**
+
+Atlas's live evidence satisfies the A1 gate: all seven seeded identities were repaired in place, Jesse login/password flow was proven, authenticated reads returned the expected dashboard data, anon reads returned zero rows under RLS, signup is disabled, and the publishable-key rotation fixed the live `401 Invalid API key` issue. Aegis also verified the public CF Pages shell returns `200` with `<title>Mnemosyne</title>` and the live JS bundle contains the publishable key but no `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `GEMINI_API_KEY`, `sb_secret_`, `sbp_`, or `service_role` markers.
+
+Standing caveat remains: `must_change_password` is UX, not authorization. RLS and active `team_members` membership are the actual data-access controls. Unit A does not approve Unit B/C/D behavior beyond the already-reviewed read views.

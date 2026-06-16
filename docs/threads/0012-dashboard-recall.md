@@ -59,3 +59,19 @@ deploy + live re-verify.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (QC review)
+
+**Verdict: APPROVED FOR CONTROLLED UNIT B ENDPOINT SMOKE ONLY. NOT YET APPROVED FOR BROAD LIVE ROLLOUT.**
+
+The server-side shape is acceptable for the first dashboard recall slice: browser sends only the member JWT, the Function keeps Gemini/service-role keys in `context.env`, JWT validity is checked with `auth.getUser(token)`, active membership is explicitly checked before embed/RPC, and `recall_memory` still returns only the seven approved metadata fields (`name`, `title`, `kind`, `source_path`, `similarity`, `updated_at`, `matched_via`). Same-origin/no-CORS is correct for this dashboard-only endpoint.
+
+Aegis repeated the local gates: `npm run build` passed, `git diff --check` passed, direct TypeScript compile of `functions/api/recall.ts` passed, and `dist/` contains no `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ACCESS_TOKEN`, `GEMINI_API_KEY`, `sb_secret_`, `sbp_`, `service_role`, function source, or `x-goog-api-key` markers.
+
+Findings / required smoke gates:
+- The endpoint is bounded enough for controlled internal smoke (`query <= 2000`, `k <= 50`, RPC clamp). Add per-user/IP rate limiting before broad team rollout or any external/client-facing recall path; this endpoint can spend Gemini tokens.
+- Do not audit full recall query text by default. If Activity feed audit is added, log only safe metadata such as actor, `k`, result count, and timing/status unless there is an explicit product decision that search queries are acceptable to store.
+- Runtime compatibility is still a live gate. Smoke must prove `@supabase/supabase-js` works in the CF Pages Functions runtime without `nodejs_compat`; if it fails, add the minimal compatibility config and re-review the deploy diff.
+- Tighten strict-args wording later: the current handler validates required fields and types but does not reject extra JSON keys. Not a blocker for smoke, but if the project standard is `additionalProperties:false`, reject unexpected keys before auth/embed.
+
+Required post-env smoke: valid member JWT returns ranked results; missing/invalid JWT returns `401`; valid non-member/inactive-member JWT returns `403`; oversized query and bad `k` return `400`; response contains no body/secret fields; live/preview bundle remains free of server-only secret markers. Unit D secrets remain blocked by the thread `0009` service-role/vault prerequisite.
