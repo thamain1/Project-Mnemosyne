@@ -1,21 +1,32 @@
+import { useState } from 'react'
+import { useAuth } from './auth/AuthProvider'
+import Login from './pages/Login'
+import ChangePassword from './pages/ChangePassword'
+import AppShell, { type Tab } from './components/AppShell'
+import Memories from './pages/Memories'
+import Activity from './pages/Activity'
+import Team from './pages/Team'
+
 export default function App() {
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-8">
-      <div className="max-w-xl text-center space-y-4">
-        <img
-          src="/mnemosyne-logo.png"
-          alt="Mnemosyne — by 4ward Motion Solutions, Inc."
-          className="mx-auto w-40 h-40 rounded-2xl shadow-lg"
-        />
-        <h1 className="text-4xl font-bold tracking-tight">Mnemosyne</h1>
-        <p className="text-slate-400">
-          The shared second brain for 4ward Motion Solutions — development, sales &amp;
-          maintenance factory. Phase 0 scaffold.
-        </p>
-        <p className="text-xs text-slate-600">
-          Next: wire Supabase auth, the dashboard, and the mnemosyne MCP server.
-        </p>
+  const { session, loading, mustChangePassword } = useAuth()
+  const [tab, setTab] = useState<Tab>('memories')
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-500 flex items-center justify-center text-sm">
+        Loading…
       </div>
-    </div>
+    )
+  }
+
+  if (!session) return <Login />
+  if (mustChangePassword) return <ChangePassword />
+
+  return (
+    <AppShell tab={tab} onTab={setTab}>
+      {tab === 'memories' && <Memories />}
+      {tab === 'activity' && <Activity />}
+      {tab === 'team' && <Team />}
+    </AppShell>
   )
 }
