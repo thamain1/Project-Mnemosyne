@@ -172,3 +172,62 @@ the four tightenings (3 applied, 1 noted as follow-up). Re-pushing for re-review
 
 ### Aegis — (awaiting re-review)
 <!-- Aegis: pull, then append your re-review here. -->
+
+### Aegis — 2026-06-16 (C4.2 remediation re-review)
+
+**Verdict: APPROVED FOR CONTROLLED `0013` + `0014` APPLY AND LIVE SMOKE. NOT YET CLOSED.**
+
+The blocking finding is remediated in the correct layer. `0014` removes the broad survivability-era
+`documents_team_all` / `document_chunks_team_all` write policies and replaces them with select-only team-read
+policies, then explicitly revokes direct `insert`, `update`, and `delete` on both document tables from `anon`
+and `authenticated`. That makes `/api/save-document` + the service-role `save_document` RPC the intended
+authoritative write path instead of relying on convention.
+
+The `0013` tightenings are also acceptable: `save_document` now matches the endpoint's `mou|sow` type scope,
+the `documents_origin_chk` idempotency check is table-specific, and the endpoint refuses arbitrary clean
+markdown that lacks the governed 4ward draft marker before auth/embed/persist. The shape gate is a lightweight
+provenance proxy, not cryptographic proof that the draft came from `/api/generate-contract`, but it is adequate
+for this internal controlled C4.2 step when combined with the scanner, member auth, RPC validation, and live
+smoke checks.
+
+Aegis verification performed:
+- Reviewed `0014_documents_write_lockdown.sql`: broad document write policies dropped, select-only policies
+  added, direct Data API write privileges revoked for `anon` and `authenticated`.
+- Reviewed updated `0013_save_document_rpc.sql`: service-role-only RPC, active-member actor recheck, strict
+  payload, `mou|sow` only, insert-only `origin='draft'`, 768-dim/unit-normalized chunk validation, and atomic
+  `log_activity` audit.
+- Reviewed updated `/api/save-document`: strict args, governed-draft shape gate, scanner gate before embedding,
+  normalized `RETRIEVAL_DOCUMENT` embeddings, actor=`uid`, and service-role RPC persistence.
+- `npm run build` passed.
+- Direct TypeScript check for `functions/api/save-document.ts`, `functions/api/generate-contract.ts`, and
+  `functions/_lib/contract-scan.ts` passed.
+- `git diff --check` passed.
+- Local `dist/` scan found no service-role, Gemini, access-token, `x-goog-api-key`, `save_document`, or
+  `RETRIEVAL_DOCUMENT` markers.
+- Live `/api/save-document` governed-shaped request without JWT returned `401`.
+- Live `/api/save-document` arbitrary clean markdown returned `400` from the shape gate.
+- Live JS bundle scan found no service-role, Gemini, access-token, `x-goog-api-key`, `save_document`, or
+  `RETRIEVAL_DOCUMENT` markers.
+
+Required post-apply/live smoke before close-out:
+- Apply `0013` and `0014` together, then verify `documents.origin` exists and `documents_origin_chk` is attached
+  to `public.documents`.
+- Verify `save_document(jsonb, uuid, jsonb)` has empty `search_path`, is `SECURITY DEFINER`, and executable only
+  by `service_role`.
+- Verify `documents` and `document_chunks` have team-readable select policies only, with no active
+  insert/update/delete policies for member roles.
+- Verify `anon` and `authenticated` lack direct `insert`, `update`, and `delete` privileges on both tables.
+- Using an anon-key client with a real active member JWT, prove direct insert/update/delete attempts against
+  `documents` and `document_chunks` fail.
+- Prove `/api/save-document` still succeeds through the RPC for a generated MOU/SOW draft: `201`, new
+  `documents.origin='draft'`, `created_by=uid`, valid chunks, and `activity_log.document.save_draft`.
+- Prove planted brand/secret/marker content returns `422` and writes no document, chunk, or audit residue.
+- Prove missing/invalid JWT returns `401`, non-member returns `403`, and bad doc type / oversize / extra key /
+  arbitrary clean markdown return `400`.
+- Confirm the draft appears in Documents and is findable through `/api/search-docs`; then clean up the smoke
+  draft row and chunks.
+- Confirm no existing `origin='ingested'` final document was modified.
+
+Residual deferrals remain: per-user/IP rate limiting before broad reliance, and a later provenance/versioning
+model if repeated saves become noisy. No migration apply, database write, or product-code change was performed
+by Aegis.
