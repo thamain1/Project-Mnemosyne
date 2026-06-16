@@ -92,11 +92,12 @@ async function patchColumns() {
 
 async function ensureIdentities() {
   // Create an 'email' provider identity for any roster user missing one (GoTrue expects it).
+  // NB: auth.identities.email is a GENERATED column (derived from identity_data->>'email') — do NOT insert it.
   await sql(`
-    insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at, email)
+    insert into auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
     select u.id::text, u.id,
       jsonb_build_object('sub', u.id::text, 'email', u.email, 'email_verified', true, 'phone_verified', false),
-      'email', now(), now(), now(), u.email
+      'email', now(), now(), now()
     from auth.users u
     where u.email in ${inList}
       and not exists (select 1 from auth.identities i where i.user_id = u.id and i.provider = 'email');`)

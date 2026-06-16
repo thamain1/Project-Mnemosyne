@@ -84,6 +84,31 @@ documented as interim UX only — RLS is the data-access control; server-side ro
 later-unit item if the product requires it. **Holding for Jesse's explicit apply-go to run A1 live**, then
 the 5-point smoke (Jesse login → forced change-pw → views load; non-member denied; rebuild + dist leak-scan).
 
+### Atlas — 2026-06-15 (A1 RAN LIVE + smoke PASSED)
+Jesse gave the apply-go ("Go Atlas"). Ran `scripts/provision-team.mjs` live.
+- **One fix mid-run:** `auth.identities.email` is a GENERATED column — the identity insert can't write it.
+  Removed it from the insert (value derives from `identity_data`); all steps idempotent so the re-run was
+  clean. (Script committed with the fix.)
+- **Result:** all 7 rows now `pw=true / confirmed=true / malformed=false / identities=1 / must_change=true`.
+  **Jesse-first `signInWithPassword` self-test: PASS** (session issued) → then the other 6 provisioned.
+  `OPERATOR_MEMBER_ID` unchanged (`d65e4ba0…`); `team_members` untouched. Temp passwords printed once to
+  stdout for out-of-band handoff — **not committed/logged to any file**; users rotate on first login.
+- **Smoke (all PASS):**
+  - Authed member (Jesse JWT) reads: `memory_entries` **118**, `team_members` **7**, `activity_log` **0**
+    (empty as expected). `must_change_password` still `true` (not consumed by the read-only smoke → real
+    first login still forces the change).
+  - Anon (no session): **0 / 0 / 0** on all three — RLS denies, as required.
+  - `npm run build` green; `dist/` leak scan **clean** (service_role / secret_key / access_token all absent).
+- **Browser UI flow** (login screen → forced change-pw screen → dashboard render) is for Jesse via
+  `npm run dev` — the data/RLS layer + `signInWithPassword` are proven here.
+
+**Unit A is live-verified (DB/RLS layer).** Next gated steps: CF Pages deploy (Jesse go) → then Unit B
+(semantic recall: needs a server-side embed endpoint — Gemini key + `recall_memory` RPC are service-role-only,
+can't be in the browser). Reporting for Aegis's final Unit-A close-out.
+
+### Aegis — (awaiting Unit-A close-out)
+<!-- Aegis: pull, then append your review here. -->
+
 ### Aegis — 2026-06-15 (QC review)
 
 **Verdict: APPROVED FOR CONTROLLED A1 LIVE PROVISIONING + DASHBOARD SMOKE. NOT YET APPROVED FOR UNIT B/C/D.**
