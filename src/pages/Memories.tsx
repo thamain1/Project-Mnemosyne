@@ -100,22 +100,24 @@ export default function Memories() {
 
   const inSearch = hits !== null
 
-  function EntryRow({ r }: { r: Entry | Hit }) {
+  function EntryCard({ r }: { r: Entry | Hit }) {
     return (
-      <button onClick={() => openEntry(r.name)} className="w-full text-left px-4 py-2.5 hover:bg-slate-900/60 transition flex items-start gap-3">
-        <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${KIND_COLORS[r.kind] ?? 'bg-slate-700 text-slate-300'}`}>{r.kind}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium truncate">{r.title || r.name}</span>
-          <span className="block text-xs text-slate-500 truncate">{r.name} · {new Date(r.updated_at).toLocaleDateString()}</span>
-        </span>
-        {'similarity' in r && (
-          <span className="mt-0.5 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-blue-300" title={(r as Hit).matched_via}>
-            {((r as Hit).similarity * 100).toFixed(0)}%
-          </span>
-        )}
+      <button onClick={() => openEntry(r.name)}
+        className="text-left h-full flex flex-col gap-1.5 rounded-lg border border-slate-800 bg-slate-900/40 hover:bg-slate-900 hover:border-slate-700 transition p-3">
+        <div className="flex items-center gap-2">
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${KIND_COLORS[r.kind] ?? 'bg-slate-700 text-slate-300'}`}>{r.kind}</span>
+          {'similarity' in r && (
+            <span className="ml-auto shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-blue-300" title={(r as Hit).matched_via}>
+              {((r as Hit).similarity * 100).toFixed(0)}%
+            </span>
+          )}
+        </div>
+        <span className="text-sm font-medium line-clamp-2">{r.title || r.name}</span>
+        <span className="mt-auto text-xs text-slate-500 truncate">{r.name} · {new Date(r.updated_at).toLocaleDateString()}</span>
       </button>
     )
   }
+  const GRID = 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
 
   return (
     <div className="space-y-4">
@@ -164,12 +166,11 @@ export default function Memories() {
 
       {err && <p className="text-sm text-red-400">{err}</p>}
 
-      {/* SEARCH RESULTS — flat, ranked */}
+      {/* SEARCH RESULTS — flat, ranked, 3-col grid */}
       {inSearch && (
-        <div className="divide-y divide-slate-800 rounded-lg border border-slate-800 overflow-hidden">
-          {hits!.map((r) => <EntryRow key={r.name} r={r} />)}
-          {hits!.length === 0 && <p className="px-4 py-6 text-sm text-slate-500">No confident matches.</p>}
-        </div>
+        hits!.length === 0
+          ? <p className="px-4 py-6 text-sm text-slate-500">No confident matches.</p>
+          : <div className={GRID}>{hits!.map((r) => <EntryCard key={r.name} r={r} />)}</div>
       )}
 
       {/* BROWSE — grouped, collapsible drill-down */}
@@ -185,7 +186,7 @@ export default function Memories() {
                   <span className="text-sm font-medium">{g.label}</span>
                   <span className="ml-auto text-xs text-slate-500">{g.items.length}</span>
                 </button>
-                {open && <div className="divide-y divide-slate-800 border-t border-slate-800">{g.items.map((r) => <EntryRow key={r.name} r={r} />)}</div>}
+                {open && <div className={`border-t border-slate-800 p-3 ${GRID}`}>{g.items.map((r) => <EntryCard key={r.name} r={r} />)}</div>}
               </div>
             )
           })}
@@ -193,10 +194,10 @@ export default function Memories() {
         </div>
       )}
 
-      {/* DETAIL DRAWER */}
+      {/* DETAIL MODAL — centered */}
       {openName && (
-        <div className="fixed inset-0 z-20 flex" onClick={() => setOpenName(null)}>
-          <div className="ml-auto h-full w-full max-w-xl bg-slate-900 border-l border-slate-800 shadow-2xl overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setOpenName(null)}>
+          <div className="w-full max-w-2xl max-h-[80vh] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between gap-3 mb-3">
               <h3 className="font-semibold">{openName}</h3>
               <button onClick={() => setOpenName(null)} className="text-slate-500 hover:text-slate-200 text-sm">Close</button>
