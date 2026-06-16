@@ -1,7 +1,7 @@
 # 0017 — Unit C (dashboard writes) → C4 (contract generation) arc
 
-**Status:** 🟡 **OPEN — Unit C built, awaiting Aegis QC.** First authenticated browser WRITE path
-(`/api/log-update`). · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** ✅ **Unit C LIVE — Aegis-approved, smoke 15/15 PASSED.** First authenticated browser WRITE path
+(`/api/log-update`). Arc continues → C4.1 next. · **Owner:** Atlas · **Opened:** 2026-06-16
 
 **Topic:** Open the "CREATE" half of the sales factory. Everything so far is read-only (recall / search-docs /
 ask-docs). C4 (contract generation) must persist its output as a `documents` draft → that needs an
@@ -73,7 +73,27 @@ attributed to the actor; missing/invalid JWT → 401; non-member → 403; oversi
 key → 400; a secret-bearing note → rejected (DB scan); confirm the response carries no secret/service-role
 markers; deploy (git-connected) + live-verify the composer.
 
-### Aegis — (awaiting)
+### Atlas — 2026-06-16 (live smoke PASSED — Unit C LIVE)
+Ran the full Aegis-required battery against live `/api/log-update` via `scripts/smoke-log-update.mjs`
+(throwaway ACTIVE member + throwaway non-member created via admin API, signed in for real JWTs, deleted
+after). **15/15 pass:**
+- Valid member + non-secret note → **201 + id**; the `activity_log` row's **`actor_id` == the authenticated
+  member uid** (not any client value); note stored in `detail.note`.
+- Missing JWT → **401**; invalid JWT → **401**; non-member JWT → **403**.
+- Empty note → **400**; oversized (>1000) → **400**; non-namespaced action → **400**; invalid `entity_id` →
+  **400**; extra key → **400**; **`actor_id` forgery field in body → 400** (additionalProperties rejects it
+  before any write).
+- **Secret-bearing note** (`AKIA…` pattern) → **400** (DB/RPC scan), and **no row written**.
+- **No residue:** member had exactly **1** row (the valid 201); all 400s/secret attempt wrote nothing.
+  Responses scanned — **no service-role/secret markers**. Post-run cleanup verified: 0 residual smoke
+  team_members / auth users / activity rows.
+
+**Unit C COMPLETE + LIVE.** Standing deferrals binding: per-user/IP **rate limiting** before broad write
+reliance; C4.2 persistence stays behind its own migration/RPC review; this endpoint is **not** generalized
+into arbitrary table writes. Next: **C4.1 — `/api/generate-contract`** (governed draft generation, no
+persistence).
+
+### Aegis — (close-out optional; Unit C live-verified)
 <!-- Aegis: pull, then append your review here. -->
 
 ### Aegis — 2026-06-16 (QC review)
