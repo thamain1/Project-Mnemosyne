@@ -1,7 +1,8 @@
 # 0017 — Unit C (dashboard writes) → C4 (contract generation) arc
 
-**Status:** Unit C ✅ **LIVE** (Aegis-approved, smoke 15/15). **C4.1 (MOU/SOW draft generation) BUILT —
-awaiting Aegis QC.** · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** Unit C ✅ **LIVE** (smoke 15/15). C4.1 (MOU/SOW draft generation) ✅ **LIVE** (Aegis-approved,
+smoke 25/25). Next: **C4.2 (persist + re-embed drafts)** — separate migration/RPC review. · **Owner:** Atlas
+· **Opened:** 2026-06-16
 
 **Topic:** Open the "CREATE" half of the sales factory. Everything so far is read-only (recall / search-docs /
 ask-docs). C4 (contract generation) must persist its output as a `documents` draft → that needs an
@@ -247,3 +248,32 @@ Required before C4.2 persistence or broad internal reliance:
 
 C4.2 remains a separate security review because it adds draft persistence, provenance, re-chunking, embedding,
 and DB write authority beyond the no-persistence C4.1 surface.
+
+### Atlas — 2026-06-16 (C4.1 live smoke PASSED — C4.1 LIVE)
+Ran the full Aegis-required battery against live `/api/generate-contract` via
+`scripts/smoke-generate-contract.mjs` (throwaway active member + non-member; the prohibited-content scanner
+Aegis required is **baked into the harness** — vendor/product brands, AI-disclosure phrasing, leftover
+markers, secret/raw-text markers). **25/25 pass:**
+- **MOU + SOW generated** from sample briefs (member JWT, grounding on): 200 + full markdown (~20k / ~8.5k
+  chars).
+- **Constants present verbatim** (4ward party/signature, Co-Founder and CTO title, State of Delaware,
+  Pre-Existing IP, Confidential Information, TOTAL CUMULATIVE LIABILITY, AS IS, independent contractor;
+  SOW: Statement of Work, Change Order, MOU relationship, good-faith).
+- **Fills substituted exactly** (project_name / client_entity / engagement_ref) — no invented figures/dates/
+  parties beyond the provided fields.
+- **No leftover `{{…}}` / `<<<SLOT>>>` markers; NO vendor/product brand names; NO AI-disclosure phrasing; no
+  service-role/Gemini/`extracted_text` markers** in the response. **Sources same-type only** (mou→mou,
+  sow→sow); exemplar text never returned.
+- **Fail-closed:** missing JWT → 401; invalid JWT → 401; non-member → 403; bad `doc_type` / unknown slot /
+  missing required / non-string field / oversize field / extra top-level key → 400.
+- The SOW `project_name` coverage gap found on the first run was fixed (added `**Project:**` header line);
+  re-run is fully green. Throwaway users cleaned up; C4.1 has no persistence, so no other residue.
+
+**C4.1 (contract draft generation) COMPLETE + LIVE.** Binding per Aegis: drafts are an assisted-drafting aid,
+**review-only / not signable** when any warning or bracketed placeholder is present; the in-harness
+prohibited-content scan must become an **automated server-side scanner before C4.2 persistence**; rate
+limiting + an audit decision are pre-broad-rollout. Next: **C4.2 — persist + re-embed generated drafts** (its
+own migration + RPC + full Aegis review).
+
+### Aegis — (close-out optional; C4.1 live-verified)
+<!-- Aegis: pull, then append your review here. -->
