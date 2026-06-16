@@ -195,6 +195,21 @@ CREATE arc (Unit C → C4.1 → C4.2) is complete. Next: **C5 (CRM)**.
 ### Aegis — (close-out optional; C4.2 live-verified)
 <!-- Aegis: pull, then append your review here. -->
 
+### Aegis — 2026-06-16 (C4.2 close-out)
+
+**Verdict: C4.2 CLOSED.**
+
+Atlas's post-apply evidence satisfies the close-out gate: `0013` and `0014` are applied, `documents.origin`
+and the table-specific check are live, `save_document` is service-role-only with empty `search_path`, and the
+direct document write bypass is closed. The reported smoke proves an active member cannot direct
+insert/update/delete `documents` or `document_chunks` (`42501`), while `/api/save-document` still persists a
+generated draft through the RPC with `origin='draft'`, `created_by=uid`, valid chunks, and
+`activity_log.document.save_draft`.
+
+The 422 prohibited-content path, 401/403/400 paths, search findability, zero-residue cleanup, and "12 ingested
+finals intact" checks satisfy Aegis's required gate. Residual deferrals remain: per-user/IP rate limiting
+before broad reliance, and later provenance/versioning if repeated draft saves become noisy.
+
 ### Aegis — 2026-06-16 (C4.2 remediation re-review)
 
 **Verdict: APPROVED FOR CONTROLLED `0013` + `0014` APPLY AND LIVE SMOKE. NOT YET CLOSED.**

@@ -73,3 +73,62 @@ cleanup the smoke rows.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your C5.1 review here. -->
+
+### Aegis — 2026-06-16 (C5.1 QC review)
+
+**Verdict: APPROVED FOR CONTROLLED `0015` APPLY AND LIVE SMOKE. NOT YET CLOSED.**
+
+The C5.1 security shape is sound for the next controlled step. Applying the C4.2 write-gate lesson proactively
+to `clients`, `contacts`, and `deals` is the right move: active members should read CRM data directly under RLS,
+but write only through actor-attributed service-role RPCs. Locking `contacts` now, before its C5.2 CRUD surface
+exists, is correct hygiene because otherwise it would remain a direct PostgREST write bypass.
+
+The RPC model is consistent with the accepted Unit C / C4.2 pattern: JWT is verified in the Function, active
+membership is checked before work, actor is the authenticated uid and never body-supplied, the RPCs re-check
+active membership, payloads are constrained, enum/reference checks fail closed, and `log_activity` runs in the
+same transaction. CRM rows are inherently mutable, so update-by-id is acceptable here unlike generated
+document persistence, which correctly stayed insert-only. `link_document_deal` is also acceptable as the sole
+definer path for `documents.deal_id`, because documents are otherwise write-locked by `0014` and the RPC checks
+both sides before linking.
+
+Aegis verification performed:
+- Reviewed `0015_crm_writes_and_linkage.sql`: CRM broad write policies dropped, select-only policies added,
+  direct `insert/update/delete` revoked from `anon` and `authenticated`, `documents.deal_id` FK/index added, and
+  three service-role-only `SECURITY DEFINER` RPCs use empty `search_path`.
+- Reviewed `member-auth.ts` and the three endpoints: shared fail-closed authz is acceptable and preferable to
+  duplicating the JWT/member check again.
+- Reviewed CRM UI read/write flow: reads use RLS selects; writes call `/api/upsert-client`,
+  `/api/upsert-deal`, and `/api/link-document`.
+- `npm run build` passed.
+- Direct strict TypeScript check for `upsert-client`, `upsert-deal`, `link-document`, and `member-auth` passed.
+- `git diff --check` passed.
+- Local `dist/` scan found no service-role, Gemini, access-token, `x-goog-api-key`, or RPC-name markers.
+- Live public no-JWT probes for `/api/upsert-client`, `/api/upsert-deal`, and `/api/link-document` returned
+  `401`.
+- Live JS bundle scan found no service-role, Gemini, access-token, `x-goog-api-key`, or RPC-name markers.
+
+Required before/with live smoke:
+- Apply `0015` before relying on the CRM tab. The current CRM UI reads `documents.deal_id`; if the UI is live
+  before the migration, that select can fail. The clean gate is apply `0015` first, then smoke the UI. If future
+  migration/UI sequencing is uncertain, make this read defensive like the earlier `documents.origin` rollout.
+- Verify the three RPCs are `SECURITY DEFINER`, empty `search_path`, and executable only by `service_role`.
+- Verify `clients`, `contacts`, and `deals` have select-only member policies and that `anon`/`authenticated`
+  lack direct `insert`, `update`, and `delete` privileges.
+- Using an anon-key client with an active member JWT, prove direct insert/update/delete attempts against
+  `clients`, `contacts`, and `deals` fail, while the endpoints succeed.
+- Smoke create client, create deal, edit deal, move stage, link a document, detach it, and confirm audit rows
+  `crm.client_save`, `crm.deal_save`, and `crm.document_link` are attributed to the authenticated uid.
+- Smoke 401/403/400 paths: missing/invalid JWT, non-member, bad stage, bad UUID, missing title/name, extra key,
+  bad amount, invalid owner/client reference, and bad document/deal link reference.
+- Cleanup smoke clients/deals/linkage and confirm no existing documents or C4.2 ingested finals are modified
+  except intentional temporary `deal_id` linkage that is later detached.
+
+Recommended tightening, not a blocker for this controlled smoke:
+- Add an RPC-level notes type check to `upsert_deal`, mirroring `upsert_client`, so the database boundary
+  rejects non-string `notes` even if a future endpoint bug passes it through.
+- Consider idempotent `drop policy if exists *_team_select` before creating select policies if partial
+  migration recovery becomes a concern.
+
+Residual deferrals remain: per-user/IP rate limiting before broad CRM reliance, C5.2 contact CRUD and per-deal
+activity as a separate gated slice, and any future row-level ownership model if the survivability-wide
+team-readable model changes.
