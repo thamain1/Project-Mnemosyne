@@ -15,6 +15,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { DOC_TYPES, SLOTS, TITLES, skeletonFor, type DocType, type SlotSpec } from '../_lib/contract-templates'
+import { scanContract } from '../_lib/contract-scan'
 
 const EMBED_MODEL = 'gemini-embedding-001'
 const GEN_MODEL = 'gemini-2.5-flash'
@@ -215,6 +216,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const leftover = md.match(/\{\{[^}]+\}\}/g)
   if (leftover && leftover.length) warnings.push(`Unfilled markers remained: ${[...new Set(leftover)].join(', ')}`)
 
-  return json({ doc_type: docType, title: TITLES[docType], markdown: md, sources, warnings })
+  // prohibited-content scan (warn-only here; /api/save-document blocks on the same scan before persisting)
+  const scan = scanContract(md)
+  for (const h of scan.hits) warnings.push(`Prohibited content (${h.category}): "${h.match}" — review/remove before saving.`)
+
+  return json({ doc_type: docType, title: TITLES[docType], markdown: md, sources, warnings, scan_clean: scan.clean })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

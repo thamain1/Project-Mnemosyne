@@ -8,6 +8,7 @@ type Result = {
   markdown: string
   sources: { id: string; title: string; doc_type: string; similarity: number }[]
   warnings: string[]
+  scan_clean?: boolean
 }
 
 export default function Generate() {
@@ -19,6 +20,9 @@ export default function Generate() {
   const [err, setErr] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [copied, setCopied] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
 
   const slots = SLOTS[docType]
   const fillSlots = useMemo(() => slots.filter((s) => s.kind === 'fill'), [slots])
@@ -40,9 +44,28 @@ export default function Generate() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error || `generation failed (${res.status})`)
-      setResult(data as Result)
+      setResult(data as Result); setSaveMsg(null); setSaveErr(null)
     } catch (e: any) { setErr(e?.message ?? 'generation failed') }
     finally { setLoading(false) }
+  }
+
+  async function save() {
+    if (!result) return
+    setSaving(true); setSaveMsg(null); setSaveErr(null)
+    try {
+      const res = await fetch('/api/save-document', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ doc_type: result.doc_type, title: result.title, markdown: result.markdown }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (res.status === 422 && Array.isArray(data?.hits)) throw new Error(`Blocked: ${data.hits.map((h: any) => `${h.category} "${h.match}"`).join(', ')}`)
+        throw new Error(data?.error || `save failed (${res.status})`)
+      }
+      setSaveMsg(`Saved to the brain as a draft (${data.chunks} chunk${data.chunks === 1 ? '' : 's'}) — find it under Documents.`)
+    } catch (e: any) { setSaveErr(e?.message ?? 'save failed') }
+    finally { setSaving(false) }
   }
 
   function download() {
@@ -133,9 +156,16 @@ export default function Generate() {
             <h3 className="text-sm font-medium">{result.title}</h3>
             <div className="ml-auto flex gap-2">
               <button onClick={copy} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100">{copied ? 'Copied' : 'Copy markdown'}</button>
-              <button onClick={download} className="rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-1.5 text-sm font-medium transition">Download .md</button>
+              <button onClick={download} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:text-slate-100">Download .md</button>
+              <button onClick={save} disabled={saving || result.scan_clean === false}
+                title={result.scan_clean === false ? 'Resolve the flagged content before saving' : 'Save this draft into the brain (searchable under Documents)'}
+                className="rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 text-sm font-medium transition">
+                {saving ? 'Saving…' : 'Save to brain'}
+              </button>
             </div>
           </div>
+          {saveMsg && <p className="text-sm text-emerald-400">{saveMsg}</p>}
+          {saveErr && <p className="text-sm text-red-400">{saveErr}</p>}
           {result.sources.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[10px] uppercase tracking-wide text-slate-500">style reference:</span>

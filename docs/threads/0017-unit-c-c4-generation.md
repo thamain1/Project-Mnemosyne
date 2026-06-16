@@ -1,7 +1,7 @@
 # 0017 — Unit C (dashboard writes) → C4 (contract generation) arc
 
 **Status:** Unit C ✅ **LIVE** (smoke 15/15). C4.1 (MOU/SOW draft generation) ✅ **LIVE** (Aegis-approved,
-smoke 25/25). Next: **C4.2 (persist + re-embed drafts)** — separate migration/RPC review. · **Owner:** Atlas
+smoke 25/25). **C4.2 (persist + re-embed drafts) built — QC in thread `0018`.** · **Owner:** Atlas
 · **Opened:** 2026-06-16
 
 **Topic:** Open the "CREATE" half of the sales factory. Everything so far is read-only (recall / search-docs /

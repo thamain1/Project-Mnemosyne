@@ -8,6 +8,7 @@ type Doc = {
   doc_type: string
   project_id: string | null
   created_at: string
+  origin?: string | null
 }
 type Hit = Doc & { similarity: number; matched_via?: string }
 
@@ -46,15 +47,26 @@ export default function Documents() {
   const [askErr, setAskErr] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase
-      .from('documents')
-      .select('id, title, doc_type, project_id, created_at')
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) setErr(error.message)
-        else setRows((data ?? []) as Doc[])
-        setLoading(false)
-      })
+    // Try selecting `origin` (added in migration 0013); fall back gracefully if it isn't applied yet.
+    async function load() {
+      let data: any[] | null
+      let error: { message: string } | null
+      const withOrigin = await supabase
+        .from('documents').select('id, title, doc_type, project_id, created_at, origin')
+        .order('created_at', { ascending: false })
+      if (withOrigin.error) {
+        const res = await supabase
+          .from('documents').select('id, title, doc_type, project_id, created_at')
+          .order('created_at', { ascending: false })
+        data = res.data; error = res.error
+      } else {
+        data = withOrigin.data; error = null
+      }
+      if (error) setErr(error.message)
+      else setRows((data ?? []) as Doc[])
+      setLoading(false)
+    }
+    load()
   }, [])
 
   const browse = useMemo(() => {
@@ -120,6 +132,7 @@ export default function Documents() {
       <button onClick={() => openDoc(d)} className="text-left h-full flex flex-col gap-1.5 rounded-lg border border-slate-800 bg-slate-900/40 hover:bg-slate-900 hover:border-slate-700 transition p-3">
         <div className="flex items-center gap-2">
           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${TYPE_COLORS[d.doc_type] ?? TYPE_COLORS.other}`}>{d.doc_type}</span>
+          {d.origin === 'draft' && <span className="shrink-0 rounded bg-violet-500/15 text-violet-300 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">draft</span>}
           {'similarity' in d && <span className="ml-auto shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-blue-300">{((d as Hit).similarity * 100).toFixed(0)}%</span>}
         </div>
         <span className="text-sm font-medium line-clamp-2">{d.title}</span>
