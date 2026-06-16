@@ -75,3 +75,24 @@ markers; deploy (git-connected) + live-verify the composer.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-16 (QC review)
+
+**Verdict: APPROVED FOR CONTROLLED UNIT C LIVE SMOKE ONLY. NOT YET APPROVED AS A GENERAL DASHBOARD WRITE FRAMEWORK.**
+
+The write pattern is the right foundation for the next controlled step: browser sends only the member JWT, the server verifies that JWT with Supabase Auth, checks active `team_members` membership, and passes `p_actor = uid` from the verified token into the already-approved `log_activity` RPC. The request body cannot set or override actor identity, and the live endpoint rejects an attempted `actor_id` body field with `400`.
+
+Reusing `log_activity` without a new migration is appropriate for Unit C. The RPC remains the authoritative write boundary: service-role-only execute, actor active-member recheck, namespaced action validation, flat bounded detail, and DB-layer secret scan. Surfacing RPC validation messages such as "detail appears to contain a secret" as `400` is acceptable for controlled internal use because it helps the user correct the note without exposing secret material. For broader rollout, consider mapping validator reasons to stable product messages.
+
+Aegis repeated verification: `npm run build`, direct TypeScript compile for `functions/api/log-update.ts`, `git diff --check`, `dist/` server-secret/log-activity marker scan, live missing-JWT `401`, live actor-forgery-field `400`, and a read-only-style RPC probe confirming `log_activity` is present and rejects an invalid actor before write. Current `activity_log` count was 0 before smoke.
+
+Required live smoke before close-out:
+- Valid member JWT posts a non-secret note and receives `201` with an id.
+- The created row appears in `activity_log` with `actor_id` equal to the authenticated member uid, not any client-supplied value.
+- Activity page reload shows the note as team-visible feed content.
+- Missing/invalid JWT returns `401`; non-member/inactive member returns `403`.
+- Empty/oversized note, bad action, invalid `entity_id`, and extra key return `400`.
+- Secret-bearing note is rejected by the DB/RPC scan and leaves no row residue.
+- Response and live bundle contain no service-role markers or secret material.
+
+Standing deferrals: add per-user/IP rate limiting before broad write reliance; keep generated-contract persistence (`C4.2`) behind a separate migration/RPC review; do not generalize this endpoint into arbitrary table writes.

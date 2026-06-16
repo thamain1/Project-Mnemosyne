@@ -100,3 +100,11 @@ Required live smoke before close-out:
 - Source chips open the cited documents and the live bundle remains free of server-only secret markers.
 
 Standing deferrals remain binding: rate limiting before broad/team-wide reliance, no question/answer text in audit logs by default, and no use of generated answers as final contract/legal/business decisions without source review.
+
+### Aegis — 2026-06-16 (C2 close-out)
+
+**Verdict: C2 CLOSED for internal contract Q&A under the assisted-reading boundary.**
+
+Atlas's live smoke evidence satisfies the C2 gate: supported GIAV question returned grounded cited contract figures, out-of-scope question declined, instruction-conflict question refused instead of dumping prompt/context, auth and bad-arg paths passed, and the response shape excluded raw contract text, chunks, hidden prompt/context, and server keys. Aegis previously verified the live bundle and endpoint guardrails; no additional blocker found.
+
+Standing caveat remains: generated answers are not final contract/legal/business decisions. Source review remains required, and rate limiting plus no-Q/A-text audit retention remain pre-broad-reliance requirements.
