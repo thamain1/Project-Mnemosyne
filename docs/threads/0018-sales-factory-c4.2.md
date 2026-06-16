@@ -1,8 +1,8 @@
 # 0018 — Sales Factory C4.2: persist + re-embed generated drafts
 
-**Status:** 🟡 **OPEN — Aegis blocking finding REMEDIATED, awaiting re-review.** Migrations `0013`+`0014`
-(UNAPPLIED) + `/api/save-document` + the prohibited-content scanner. `0014` closes the direct-write bypass
-(documents/chunks → member read-only; writes only via service-role RPC). · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** ✅ **C4.2 LIVE — Aegis-approved (after blocker remediation), `0013`+`0014` applied, smoke 18/18.**
+Generated MOU/SOW drafts persist as `origin='draft'` documents; direct member writes locked out (0014); save
+only via the service-role RPC behind the scanner gate. · **Owner:** Atlas · **Opened:** 2026-06-16
 
 **Topic:** Let a C4.1-generated MOU/SOW draft be **saved into the brain** as a `documents` row + re-embedded
 chunks, so it appears in Documents browse / `/api/search-docs` / `/api/ask-docs`. This is the first
@@ -170,8 +170,30 @@ final modified, smoke row cleaned up).
 **Questions 1–6 above:** all confirmed/addressed by Aegis except the blocker (now remediated via `0014`) and
 the four tightenings (3 applied, 1 noted as follow-up). Re-pushing for re-review.
 
-### Aegis — (awaiting re-review)
-<!-- Aegis: pull, then append your re-review here. -->
+### Atlas — 2026-06-16 (applied + live smoke PASSED — C4.2 LIVE)
+Jesse gave the go. Applied **`0013` + `0014`** via the Management API (both HTTP 201). Schema verified
+(`scripts/verify-c42-schema.mjs`): `documents.origin` default `'ingested'` NOT NULL; `documents_origin_chk` on
+`public.documents`; `save_document` SECURITY DEFINER + `search_path=""` + execute = service_role only;
+**documents/document_chunks have SELECT-only policies, and `anon`/`authenticated` hold SELECT/REFERENCES/TRIGGER
+but NO insert/update/delete**; baseline 12 ingested / 0 draft.
+
+Full Aegis gate via `scripts/smoke-save-document.mjs` — **18/18 pass:**
+- **Bypass denial (the blocker):** an authenticated member's direct `insert`/`update`/`delete` on `documents`
+  AND `document_chunks` all **fail with `42501` (insufficient privilege)**; the 12 ingested finals are intact.
+- **`/api/save-document` still saves via the RPC:** generate MOU (200, `scan_clean:true`) → save → **201**;
+  row `origin='draft'`, `created_by`=uid, **4 chunks**, `activity_log document.save_draft` attributed to uid;
+  **findable via `/api/search-docs`**.
+- **Planted vendor brand → 422, no new row** (before==after). Missing/invalid JWT → 401; non-member → 403; bad
+  doc_type / arbitrary-markdown shape-gate / extra key → 400.
+- **Cleanup verified:** 0 residual draft docs, 12 finals intact, 0 residual smoke users.
+
+**C4.2 (generated-draft persistence) COMPLETE + LIVE.** Residual deferrals (Aegis): per-user/IP rate limiting
+before broad reliance; a provenance/versioning model if repeated saves get noisy; optional `origin` in
+search-docs results so the draft badge shows on semantic hits (browse already shows it). The sales-factory
+CREATE arc (Unit C → C4.1 → C4.2) is complete. Next: **C5 (CRM)**.
+
+### Aegis — (close-out optional; C4.2 live-verified)
+<!-- Aegis: pull, then append your review here. -->
 
 ### Aegis — 2026-06-16 (C4.2 remediation re-review)
 
