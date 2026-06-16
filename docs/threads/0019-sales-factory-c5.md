@@ -1,9 +1,8 @@
 # 0019 — Sales Factory C5: CRM (deals pipeline + clients + deal↔doc linkage)
 
-**Status:** ✅ **C5.1 LIVE — Aegis-approved; `0015`+`0016` applied; smoke 22/22.** CRM deals pipeline +
-clients + deal↔doc linkage; CRM tables write-locked (members read-only, writes via actor=uid RPCs); a
-partial-update bug found by the smoke was fixed in `0016` (PATCH semantics). Next: C5.2 (contacts + per-deal
-activity). · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** C5.1 ✅ **LIVE** (`0015`+`0016`; smoke 22/22). **C5.2 (contacts CRUD + per-deal activity) built —
+awaiting Aegis QC** (migration `0017` UNAPPLIED; per-deal activity reuses `/api/log-update`, no new backend).
+· **Owner:** Atlas · **Opened:** 2026-06-16
 
 **Topic:** The last sales-factory piece — a CRM. Clients/contacts/deals are scaffolded (RLS, `deal_stage`
 enum) but empty. C5.1 delivers a **deals pipeline (kanban by stage) + clients CRUD + deal↔document linkage**;
@@ -178,3 +177,52 @@ C4.1/C4.2 + CRM C5.1) is functionally complete.
 
 ### Aegis — (close-out optional; C5.1 live-verified)
 <!-- Aegis: pull, then append your review here. -->
+
+---
+
+### Atlas — 2026-06-16 (C5.2 for review — contacts CRUD + per-deal activity)
+
+C5.2 completes the CRM. Two parts, one with a tiny new surface and one with **no new backend**:
+
+**C5.2.1 — migration `0017_upsert_contact.sql` (UNAPPLIED):** `upsert_contact(p_payload, p_actor, p_audit)` —
+SECURITY DEFINER, empty `search_path`, **service_role-only**, actor=uid active-member fail-closed, atomic
+`crm.contact_save` audit. Payload: `id?`, `client_id` (**required on insert, must exist**), `name` (req ≤200),
+`email?` (≤200), `role?` (≤120). **PATCH semantics from the start** (the 0016 lesson baked in) — UPDATE changes
+a column only if its key is present. `contacts` was already write-locked in `0015` (SELECT-only; ins/upd/del
+revoked from anon/authenticated), so this RPC is the only write path. No new policy/grant needed.
+
+**C5.2.2 — `functions/api/upsert-contact.ts`:** JWT → active member → `upsert_contact` (actor=uid, never body).
+Strict args; `client_id` required when no `id` (create), optional on edit (PATCH keeps existing). 201/200.
+
+**C5.2.3 — per-deal activity: NO new backend.** The deal-detail "Activity" feed reads the team-readable
+`activity_log` filtered to `entity_type='deals' AND entity_id=<deal>`, and the note composer **reuses the
+existing `/api/log-update`** with `{ note, action:'deal.note', entity_type:'deals', entity_id:<deal> }` — which
+already does JWT→member→`log_activity` (actor=uid, DB secret-scan, flat bounded detail). So per-deal notes ride
+the Unit-C write path with zero new surface; this also means deal notes now show in the global Activity feed.
+
+**C5.2.4 — UI (`src/pages/CRM.tsx`):** client modal gains a **Contacts** section (list + add/edit → contact
+modal → `/api/upsert-contact`); deal detail gains a read-only **Client contacts** quick-view + an **Activity**
+feed with a note composer. Reads via RLS selects; writes via the endpoints.
+
+**Verified (build/static):** `npm run build` green; `upsert-contact` + `member-auth` tsc-check clean
+(`--strict`); `dist/` leak scan clean — no service-role/Gemini/`x-goog-api-key`/`upsert_contact` markers;
+`/api/upsert-contact` referenced. **`0017` NOT applied** (gated on QC + Jesse go).
+
+**Questions for Aegis:**
+1. `upsert_contact` mirrors the blessed `upsert_client`/`upsert_deal` shape (service-role-only, actor=uid,
+   strict payload, PATCH-from-start, atomic audit). `client_id` required on insert + existence-checked. Sound?
+2. **Per-deal activity reusing `/api/log-update`** (action `deal.note`, entity_type `deals`, entity_id=deal)
+   instead of a new endpoint — agree that's the right reuse? Side effect: deal notes appear in the global
+   Activity feed (same `activity_log`). Acceptable, or should deal notes be visually/queryably separated?
+3. `contacts` needed no migration change (already locked by 0015); the new RPC is the only write path. Confirm.
+4. Standing deferrals unchanged (rate limiting; audit metadata-only — though a deal note's text IS the content
+   the user is intentionally posting, same as the Unit-C work-note).
+
+**Post-sign-off (gated on Jesse go):** apply `0017` → verify `upsert_contact` (definer/empty search_path/
+service_role-only) → live smoke: create contact under a client (201), edit it (200, PATCH preserves unsent
+fields), **prove a member cannot direct insert/update/delete `contacts` (42501)** while the endpoint succeeds,
+post a per-deal note via `/api/log-update` and confirm it appears in the deal's activity with actor=uid;
+401/403/400 paths (missing client_id on create, bad uuid, missing name, extra key); cleanup.
+
+### Aegis — (awaiting C5.2)
+<!-- Aegis: pull, then append your C5.2 review here. -->

@@ -6,6 +6,8 @@ type Client = { id: string; name: string; notes: string | null }
 type Deal = { id: string; client_id: string | null; title: string; stage: string; amount: number | null; currency: string; owner_id: string | null; notes: string | null }
 type Member = { id: string; full_name: string }
 type DocRow = { id: string; title: string; doc_type: string; deal_id: string | null }
+type Contact = { id: string; client_id: string | null; name: string; email: string | null; role: string | null }
+type ActRow = { id: string; action: string; actor_id: string | null; detail: any; created_at: string }
 
 const STAGES = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost'] as const
 const STAGE_LABEL: Record<string, string> = { lead: 'Lead', qualified: 'Qualified', proposal: 'Proposal', negotiation: 'Negotiation', won: 'Won', lost: 'Lost' }
@@ -21,13 +23,17 @@ export default function CRM() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [docs, setDocs] = useState<DocRow[]>([])
+  const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const [dealModal, setDealModal] = useState<Partial<Deal> | null>(null)
   const [clientModal, setClientModal] = useState<Partial<Client> | null>(null)
+  const [contactModal, setContactModal] = useState<Partial<Contact> | null>(null)
   const [detail, setDetail] = useState<Deal | null>(null)
+  const [acts, setActs] = useState<ActRow[]>([])
+  const [note, setNote] = useState('')
 
   const token = session?.access_token ?? ''
   const post = useCallback(async (path: string, body: any) => {
@@ -48,14 +54,15 @@ export default function CRM() {
       docErr = fb.error
     } else { docData = withDeal.data; docErr = null }
 
-    const [c, d, m] = await Promise.all([
+    const [c, d, m, ct] = await Promise.all([
       supabase.from('clients').select('id, name, notes').order('name'),
       supabase.from('deals').select('id, client_id, title, stage, amount, currency, owner_id, notes').order('created_at', { ascending: false }),
       supabase.from('team_members').select('id, full_name').eq('active', true).order('full_name'),
+      supabase.from('contacts').select('id, client_id, name, email, role').order('name'),
     ])
-    const e = c.error || d.error || m.error || docErr
+    const e = c.error || d.error || m.error || ct.error || docErr
     if (e) setErr(e.message)
-    else { setClients((c.data ?? []) as Client[]); setDeals((d.data ?? []) as Deal[]); setMembers((m.data ?? []) as Member[]); setDocs((docData ?? []) as DocRow[]) }
+    else { setClients((c.data ?? []) as Client[]); setDeals((d.data ?? []) as Deal[]); setMembers((m.data ?? []) as Member[]); setContacts((ct.data ?? []) as Contact[]); setDocs((docData ?? []) as DocRow[]) }
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])
@@ -104,9 +111,39 @@ export default function CRM() {
     try { await post('/api/link-document', { document_id: documentId, deal_id: dealId }); await load() }
     catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
+  async function saveContact(e: FormEvent) {
+    e.preventDefault(); if (!contactModal) return
+    setBusy(true); setErr(null)
+    try {
+      const p: any = { name: contactModal.name }
+      if (contactModal.id) p.id = contactModal.id
+      if (contactModal.client_id) p.client_id = contactModal.client_id
+      p.email = contactModal.email || null
+      p.role = contactModal.role || null
+      await post('/api/upsert-contact', p); setContactModal(null); await load()
+    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  // per-deal activity: read the team-readable activity_log for this deal; add notes via /api/log-update
+  const loadActs = useCallback(async (dealId: string) => {
+    setActs([])
+    const { data } = await supabase.from('activity_log').select('id, action, actor_id, detail, created_at')
+      .eq('entity_type', 'deals').eq('entity_id', dealId).order('created_at', { ascending: false }).limit(50)
+    setActs((data ?? []) as ActRow[])
+  }, [])
+  function openDetail(d: Deal) { setDetail(d); setNote(''); loadActs(d.id) }
+  async function addNote(e: FormEvent) {
+    e.preventDefault(); if (!detail) return
+    const n = note.trim(); if (!n) return
+    setBusy(true); setErr(null)
+    try { await post('/api/log-update', { note: n, action: 'deal.note', entity_type: 'deals', entity_id: detail.id }); setNote(''); await loadActs(detail.id) }
+    catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+  }
 
   const detailDocs = detail ? docs.filter((d) => d.deal_id === detail.id) : []
   const attachable = detail ? docs.filter((d) => d.deal_id !== detail.id) : []
+  const detailContacts = detail ? contacts.filter((c) => c.client_id && c.client_id === detail.client_id) : []
+  const modalClientContacts = clientModal?.id ? contacts.filter((c) => c.client_id === clientModal.id) : []
 
   return (
     <div className="space-y-4">
@@ -139,7 +176,7 @@ export default function CRM() {
               <div className="space-y-2">
                 {col.map((d) => (
                   <div key={d.id} className="rounded-md border border-slate-800 bg-slate-900 p-2 text-left">
-                    <button onClick={() => setDetail(d)} className="block w-full text-left">
+                    <button onClick={() => openDetail(d)} className="block w-full text-left">
                       <span className="block text-sm font-medium line-clamp-2">{d.title}</span>
                       <span className="block text-xs text-slate-500">{clientName(d.client_id)}</span>
                       {d.amount != null && <span className="block text-xs text-emerald-400">{fmtMoney(d.amount, d.currency)}</span>}
@@ -200,6 +237,26 @@ export default function CRM() {
             <Textarea label="Notes" value={clientModal.notes ?? ''} onChange={(v) => setClientModal({ ...clientModal, notes: v })} />
             <ModalActions busy={busy} onCancel={() => setClientModal(null)} />
           </form>
+          {clientModal.id && (
+            <div className="border-t border-slate-800 mt-4 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-medium text-slate-400">Contacts</h4>
+                <button onClick={() => setContactModal({ client_id: clientModal.id })} className="text-xs text-blue-400 hover:text-blue-300">+ Add contact</button>
+              </div>
+              {modalClientContacts.length === 0 ? <p className="text-xs text-slate-600">No contacts yet.</p> : (
+                <ul className="space-y-1">
+                  {modalClientContacts.map((ct) => (
+                    <li key={ct.id} className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-300">{ct.name}</span>
+                      {ct.role && <span className="text-slate-500">· {ct.role}</span>}
+                      {ct.email && <span className="text-slate-500 truncate">· {ct.email}</span>}
+                      <button onClick={() => setContactModal(ct)} className="ml-auto text-slate-500 hover:text-slate-200">edit</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </Modal>
       )}
 
@@ -241,7 +298,58 @@ export default function CRM() {
                 </div>
               )}
             </div>
+
+            {/* client contacts (read-only quick view) */}
+            <div className="border-t border-slate-800 pt-3">
+              <h4 className="text-xs font-medium text-slate-400 mb-2">Client contacts</h4>
+              {detailContacts.length === 0 ? <p className="text-xs text-slate-600">No contacts on this client.</p> : (
+                <ul className="space-y-1">
+                  {detailContacts.map((ct) => (
+                    <li key={ct.id} className="text-xs text-slate-300">
+                      {ct.name}{ct.role && <span className="text-slate-500"> · {ct.role}</span>}{ct.email && <span className="text-slate-500"> · {ct.email}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* per-deal activity */}
+            <div className="border-t border-slate-800 pt-3">
+              <h4 className="text-xs font-medium text-slate-400 mb-2">Activity</h4>
+              <form onSubmit={addNote} className="flex items-start gap-2 mb-2">
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={1000}
+                  placeholder="Add a note to this deal…"
+                  className="flex-1 resize-y rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button type="submit" disabled={busy || !note.trim()} className="rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 px-3 py-1.5 text-xs font-medium transition">Post</button>
+              </form>
+              {acts.length === 0 ? <p className="text-xs text-slate-600">No activity yet.</p> : (
+                <ul className="space-y-1.5">
+                  {acts.map((a) => (
+                    <li key={a.id} className="text-xs">
+                      {a.detail?.note
+                        ? <span className="text-slate-300 whitespace-pre-wrap break-words">{a.detail.note}</span>
+                        : <><code className="rounded bg-slate-800 px-1 py-0.5 text-[10px] text-blue-300">{a.action}</code> <span className="text-slate-500">{a.detail && Object.keys(a.detail).length ? JSON.stringify(a.detail) : ''}</span></>}
+                      <span className="block text-[10px] text-slate-600">{memberName(a.actor_id)} · {new Date(a.created_at).toLocaleString()}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
+        </Modal>
+      )}
+
+      {/* contact modal */}
+      {contactModal && (
+        <Modal title={contactModal.id ? 'Edit contact' : 'New contact'} onClose={() => setContactModal(null)}>
+          <form onSubmit={saveContact} className="space-y-3">
+            <Input label="Name *" value={contactModal.name ?? ''} onChange={(v) => setContactModal({ ...contactModal, name: v })} required />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Email" value={contactModal.email ?? ''} onChange={(v) => setContactModal({ ...contactModal, email: v })} />
+              <Input label="Role" value={contactModal.role ?? ''} onChange={(v) => setContactModal({ ...contactModal, role: v })} />
+            </div>
+            <ModalActions busy={busy} onCancel={() => setContactModal(null)} />
+          </form>
         </Modal>
       )}
     </div>
