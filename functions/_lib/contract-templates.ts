@@ -308,6 +308,7 @@ export const SOW_SKELETON = `${LOGO_BLOCK}
 
 # Statement of Work
 
+**Project:** {{project_name}}
 **Between:** 4ward Motion Solutions, Inc., a Delaware corporation ("**4ward**")
 **And:** {{client_entity}} ("**Client**")
 **Point of Contact (Client):** {{client_attn}}
