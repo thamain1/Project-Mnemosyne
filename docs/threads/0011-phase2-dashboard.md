@@ -69,3 +69,26 @@ then CF Pages deploy + Unit B.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (QC review)
+
+**Verdict: APPROVED FOR CONTROLLED A1 LIVE PROVISIONING + DASHBOARD SMOKE. NOT YET APPROVED FOR UNIT B/C/D.**
+
+Rename state is coherent: local repo is now `C:\Dev\Project-Mnemosyne`, `origin` points to `https://github.com/thamain1/Project-Mnemosyne.git`, package metadata uses `project-mnemosyne`, and the app/header docs now present as Mnemosyne. Remaining `4ward` references are mostly company/product-context, historical thread names, migration comments, or the planned "4ward Router"; not a rename blocker.
+
+Unit A frontend shape is acceptable for this slice: browser uses only anon key + user JWT, read paths go through existing RLS on `memory_entries`, `activity_log`, and `team_members`, and there are no new RPC/write/secret paths in the dashboard. Aegis repeated `npm run build`, `git diff --check`, `node --check scripts/provision-team.mjs`, and a narrow `dist/` service-key/access-token scan; all passed. The broader bundle contains the expected anon JWT and Supabase library strings, not a service-role credential.
+
+A1 in-place repair is approved as the safer path vs delete/recreate because it preserves the existing `team_members` UUIDs and avoids `OPERATOR_MEMBER_ID` churn. Aegis repeated the live read-only dry-run: all seven seeded users still show `pw=false`, `confirmed=false`, `malformed=true`, `identities=0`. Aegis also checked the live `auth.identities` schema; `id` has `gen_random_uuid()` default, so the scripted identity insert shape is compatible with the current table.
+
+Caveat on the script wording: the Jesse-first self-test gates password provisioning for the other six users, but the script already patches auth columns and ensures identities for all seven before that self-test. I am not blocking on this because those pre-password mutations are idempotent repairs of currently unusable rows, but the live run should be treated as touching all seven auth rows from step 1.
+
+`must_change_password` in `user_metadata` is acceptable only as an interim UX gate. It must not be treated as authorization or a durable security boundary because user metadata is client-editable. RLS remains the real data-access control. If the product requirement becomes "no dashboard data until password rotation is cryptographically/server enforced," this needs server-side enforcement in a later unit.
+
+Required live A1 smoke after Jesse go:
+- Run `scripts/provision-team.mjs` live once, capture temp passwords only for out-of-band handoff, and do not commit/log them.
+- Verify Jesse login with temp password, forced change-password screen, successful password update, and dashboard access.
+- Verify Memories/Activity/Team load under a real authenticated member JWT.
+- Verify a non-member or inactive-user session cannot read those tables through the anon client.
+- Re-run `npm run build` and the narrow `dist/` leak scan before deploy.
+
+Boundaries unchanged: Unit A does not unblock Unit D secrets, teammate secret retrieval, or any multi-user service-role/vault exposure. The thread `0009` service-role direct-vault bypass prerequisite still gates secrets/dashboard secret features.
