@@ -38,15 +38,24 @@ export default function CRM() {
   }, [token])
 
   const load = useCallback(async () => {
-    const [c, d, m, doc] = await Promise.all([
+    // documents.deal_id is added by migration 0015; select defensively so the CRM tab works pre-migration too.
+    let docData: any[] | null
+    let docErr: { message: string } | null
+    const withDeal = await supabase.from('documents').select('id, title, doc_type, deal_id').order('created_at', { ascending: false })
+    if (withDeal.error) {
+      const fb = await supabase.from('documents').select('id, title, doc_type').order('created_at', { ascending: false })
+      docData = (fb.data ?? []).map((r: any) => ({ ...r, deal_id: null }))
+      docErr = fb.error
+    } else { docData = withDeal.data; docErr = null }
+
+    const [c, d, m] = await Promise.all([
       supabase.from('clients').select('id, name, notes').order('name'),
       supabase.from('deals').select('id, client_id, title, stage, amount, currency, owner_id, notes').order('created_at', { ascending: false }),
       supabase.from('team_members').select('id, full_name').eq('active', true).order('full_name'),
-      supabase.from('documents').select('id, title, doc_type, deal_id').order('created_at', { ascending: false }),
     ])
-    const e = c.error || d.error || m.error || doc.error
+    const e = c.error || d.error || m.error || docErr
     if (e) setErr(e.message)
-    else { setClients((c.data ?? []) as Client[]); setDeals((d.data ?? []) as Deal[]); setMembers((m.data ?? []) as Member[]); setDocs((doc.data ?? []) as DocRow[]) }
+    else { setClients((c.data ?? []) as Client[]); setDeals((d.data ?? []) as Deal[]); setMembers((m.data ?? []) as Member[]); setDocs((docData ?? []) as DocRow[]) }
     setLoading(false)
   }, [])
   useEffect(() => { load() }, [load])

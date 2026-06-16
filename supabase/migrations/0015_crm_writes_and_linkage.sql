@@ -17,6 +17,10 @@
 drop policy if exists clients_team_all  on public.clients;
 drop policy if exists contacts_team_all on public.contacts;
 drop policy if exists deals_team_all    on public.deals;
+-- idempotent for partial-migration recovery
+drop policy if exists clients_team_select  on public.clients;
+drop policy if exists contacts_team_select on public.contacts;
+drop policy if exists deals_team_select    on public.deals;
 
 create policy clients_team_select  on public.clients  for select using (public.is_team_member());
 create policy contacts_team_select on public.contacts for select using (public.is_team_member());
@@ -78,6 +82,7 @@ begin
   if v_title is null or btrim(v_title) = '' or length(v_title) > 200 then raise exception 'upsert_deal: title required (<=200 chars)'; end if;
   if v_stage is null or v_stage not in ('lead','qualified','proposal','negotiation','won','lost') then raise exception 'upsert_deal: bad stage %', v_stage; end if;
   if length(v_currency) > 10 then raise exception 'upsert_deal: bad currency'; end if;
+  if p_payload ? 'notes' and jsonb_typeof(p_payload->'notes') not in ('string','null') then raise exception 'upsert_deal: notes must be a string'; end if;
   -- amount: optional number >= 0 (null clears it)
   if p_payload ? 'amount' and jsonb_typeof(p_payload->'amount') not in ('number','null') then raise exception 'upsert_deal: amount must be a number'; end if;
   if jsonb_typeof(p_payload->'amount') = 'number' then

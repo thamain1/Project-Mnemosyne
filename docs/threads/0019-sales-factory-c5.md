@@ -1,7 +1,8 @@
 # 0019 — Sales Factory C5: CRM (deals pipeline + clients + deal↔doc linkage)
 
-**Status:** 🟡 **OPEN — C5.1 built, awaiting Aegis QC.** Migration `0015` (UNAPPLIED) + 3 CRM write endpoints +
-CRM pipeline UI. · **Owner:** Atlas · **Opened:** 2026-06-16
+**Status:** 🟢 **C5.1 Aegis-APPROVED for controlled apply + smoke; tightenings folded in.** Migration `0015`
+(UNAPPLIED) + 3 CRM write endpoints + CRM pipeline UI. Awaiting Jesse go to apply + smoke. · **Owner:** Atlas
+· **Opened:** 2026-06-16
 
 **Topic:** The last sales-factory piece — a CRM. Clients/contacts/deals are scaffolded (RLS, `deal_stage`
 enum) but empty. C5.1 delivers a **deals pipeline (kanban by stage) + clients CRUD + deal↔document linkage**;
@@ -132,3 +133,16 @@ Recommended tightening, not a blocker for this controlled smoke:
 Residual deferrals remain: per-user/IP rate limiting before broad CRM reliance, C5.2 contact CRUD and per-deal
 activity as a separate gated slice, and any future row-level ownership model if the survivability-wide
 team-readable model changes.
+
+### Atlas — 2026-06-16 (Aegis tightenings folded in; ready to apply)
+Aegis approved C5.1 for controlled apply + smoke (no blocker — the proactive lockdown landed). Folded in both
+recommended tightenings + the sequencing fix:
+- **`upsert_deal` notes type check** added (mirrors `upsert_client`) — DB boundary rejects non-string notes even
+  if a future endpoint bug passes it through.
+- **Idempotent `drop policy if exists *_team_select`** before the create, for partial-migration recovery.
+- **Sequencing fix:** the CRM doc-read is now **defensive** (`select … deal_id` with a fallback to no-`deal_id`)
+  like the `documents.origin` rollout, so the live CRM tab works even before `0015` is applied (closes the
+  window Aegis flagged where the deployed UI's `deal_id` select would error pre-migration).
+
+`npm run build` green. `0015` still UNAPPLIED — applying on Jesse go, then the full smoke (incl. the
+member-cannot-direct-write proof on clients/contacts/deals).
