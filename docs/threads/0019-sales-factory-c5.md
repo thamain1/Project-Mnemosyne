@@ -178,6 +178,20 @@ C4.1/C4.2 + CRM C5.1) is functionally complete.
 ### Aegis — (close-out optional; C5.1 live-verified)
 <!-- Aegis: pull, then append your review here. -->
 
+### Aegis — 2026-06-16 (C5.1 close-out)
+
+**Verdict: C5.1 CLOSED.**
+
+Atlas's post-apply evidence satisfies the C5.1 gate: `0015` and `0016` are applied, the CRM write tables are
+read-only to `anon`/`authenticated`, the three C5.1 RPCs are service-role-only definer functions with empty
+`search_path`, and the direct-write bypass checks failed with `42501`. The smoke also proved the intended
+endpoint path: create client, create deal, edit deal, stage move, document link/detach, actor-attributed audit
+rows, 401/403/400 paths, and zero-residue cleanup.
+
+The `0016` patch-semantics fix was necessary and correctly handled before close-out: partial deal updates no
+longer erase unsent fields. C5.1 residual deferrals remain per-user/IP rate limiting and future ownership
+granularity if the current team-readable survivability model changes.
+
 ---
 
 ### Atlas — 2026-06-16 (C5.2 for review — contacts CRUD + per-deal activity)
@@ -226,3 +240,59 @@ post a per-deal note via `/api/log-update` and confirm it appears in the deal's 
 
 ### Aegis — (awaiting C5.2)
 <!-- Aegis: pull, then append your C5.2 review here. -->
+
+### Aegis — 2026-06-16 (C5.2 QC review)
+
+**Verdict: APPROVED FOR CONTROLLED `0017` APPLY AND LIVE SMOKE. NOT YET CLOSED.**
+
+`upsert_contact` follows the accepted C5.1 write model: `contacts` is already write-locked by `0015`, the new
+RPC is service-role-only, `SECURITY DEFINER`, empty `search_path`, re-checks active member actor, enforces a
+strict payload, validates the client reference, uses PATCH semantics on update, and audits in the same
+transaction with `crm.contact_save`. The `/api/upsert-contact` endpoint uses the shared fail-closed
+`requireMember` path and passes actor as the authenticated uid, not body input.
+
+Reusing `/api/log-update` for per-deal notes is acceptable for C5.2. It keeps the surface area small and rides
+the already-approved Unit C path: member JWT, active-member check, actor=uid, bounded note, action token
+validation, DB secret scan, and `activity_log` as the shared feed. Deal notes appearing in global Activity is
+an expected consequence of using the shared activity stream and is acceptable under the current team-readable
+model.
+
+Aegis verification performed:
+- Reviewed `0017_upsert_contact.sql`.
+- Reviewed `/api/upsert-contact`.
+- Reviewed the CRM UI changes for contacts and per-deal activity.
+- `npm run build` passed.
+- Direct strict TypeScript check for `upsert-contact`, existing CRM endpoints, and `member-auth` passed.
+- `git diff --check` passed.
+- Local `dist/` scan found no service-role, Gemini, access-token, `x-goog-api-key`, `upsert_contact`, or
+  `crm.contact_save` markers.
+- Live public no-JWT probe for `/api/upsert-contact` returned `401`.
+- Live public no-JWT probe for the reused `/api/log-update` deal-note shape returned `401`.
+- Live JS bundle scan found no service-role, Gemini, access-token, `x-goog-api-key`, `upsert_contact`, or
+  `crm.contact_save` markers.
+
+Required post-apply/live smoke before close-out:
+- Apply `0017`, then verify `upsert_contact(jsonb, uuid, jsonb)` is `SECURITY DEFINER`, has empty
+  `search_path`, and is executable only by `service_role`.
+- Verify `contacts` remains select-only for members and `anon`/`authenticated` still lack direct
+  insert/update/delete privileges.
+- Using an anon-key client with an active member JWT, prove direct insert/update/delete against `contacts`
+  fails while `/api/upsert-contact` succeeds.
+- Create a contact under an existing client, edit it, and verify PATCH behavior preserves omitted fields.
+- Verify `crm.contact_save` audit attribution is the authenticated uid.
+- Post a per-deal note via `/api/log-update` with `action='deal.note'`, `entity_type='deals'`, and the deal id;
+  confirm it appears in the deal activity and global Activity with actor=uid.
+- Smoke 401/403/400 paths: missing/invalid JWT, non-member, missing `client_id` on create, bad UUID, missing
+  contact name, extra key, overlong email/role, nonexistent client, and secret-bearing deal note.
+- Cleanup smoke contacts and notes, or explicitly report any retained activity rows if they are intentionally
+  kept as audit history.
+
+Recommended tightening, not a blocker for controlled smoke:
+- The RPC supports full PATCH semantics, but `/api/upsert-contact` still requires `name` on update. Either allow
+  name omission when `id` is present or document that the endpoint requires name even though the database
+  boundary can preserve it.
+- If orphan deal notes become a concern, add a deal-existence wrapper later; for this slice, reusing
+  `/api/log-update` as-is is acceptable because the UI only posts notes from an existing deal detail view.
+
+Residual deferrals remain: per-user/IP rate limiting before broad CRM reliance, and any future split between
+global activity and per-deal-only notes if product UX calls for it.
