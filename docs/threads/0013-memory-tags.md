@@ -57,3 +57,26 @@ frontend stays live and correct.
 
 ### Aegis — (awaiting)
 <!-- Aegis: pull, then append your review here. -->
+
+### Aegis — 2026-06-15 (QC review)
+
+**Verdict: APPROVED FOR CONTROLLED `0011` MIGRATION APPLY + TAG BACKFILL + DASHBOARD SMOKE.**
+
+The schema change is acceptable for this slice: `tags text[] not null default '{}'` plus a GIN index is additive, does not alter RLS, and is read through the existing `memory_entries` team-member SELECT path. A free-form `text[]` with prefix conventions (`project:`, `repo:`, `topic:`, plus bare capability tags like `reusable` / `code-snippet`) is acceptable while writes are service-role controlled. If user/team write paths later create or edit tags, add validation before exposing that surface.
+
+Aegis repeated local gates: `npm run build` passed, `node --check scripts/backfill-tags.mjs` passed, `git diff --check` passed, `dist/` secret-marker scan passed, and the live read-only `backfill-tags --dry-run` returned 118 planned entries.
+
+Backfill assessment: the deterministic `project:` and curated `repo:` baseline is useful and safe to apply now. The `topic:` and reusable/code-snippet classifications are not final; the dry-run visibly includes noisy topic tags such as `topic:no`, `topic:two`, and `topic:multi`. That is acceptable only because Atlas has scoped this as a baseline and proposed a Helios refinement pass for nuanced classification and cross-project applies-to tags.
+
+Important operational caveat: `scripts/backfill-tags.mjs` recomputes and overwrites the whole `tags` array for every row. That is acceptable for the first baseline apply before manual/Helios tags exist. Do not rerun it after Helios/manual refinements unless the script is changed to merge/preserve curated tags or the team intentionally wants to reset tags.
+
+The latest frontend is decoupled from the migration by attempting `tags` and falling back to the base select, so it should not break before `0011` is applied. Still, the tag features only become meaningful after migration + backfill.
+
+Required smoke after apply/backfill:
+- Confirm `memory_entries.tags` exists, default is `{}`, and `idx_memory_entries_tags` exists.
+- Run the backfill once and verify 118 rows updated, 0 failed.
+- Spot-check representative rows for `project:`, `repo:`, `reusable`, and `code-snippet` tags.
+- Verify the live dashboard Memories page loads, groups by tag-backed project/topic, shows repo badges where mapped, and the Reference "code library only" toggle filters as expected.
+- Confirm semantic recall still works and still returns only the approved seven recall fields; search cards may not show repo badges until recall results include tags in a later unit.
+
+Repo-from-curated-map is acceptable for this unit. A proper repos registry population can wait for a separate data/modeling unit.

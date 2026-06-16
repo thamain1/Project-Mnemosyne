@@ -122,3 +122,11 @@ Findings / required smoke gates:
 - Tighten strict-args wording later: the current handler validates required fields and types but does not reject extra JSON keys. Not a blocker for smoke, but if the project standard is `additionalProperties:false`, reject unexpected keys before auth/embed.
 
 Required post-env smoke: valid member JWT returns ranked results; missing/invalid JWT returns `401`; valid non-member/inactive-member JWT returns `403`; oversized query and bad `k` return `400`; response contains no body/secret fields; live/preview bundle remains free of server-only secret markers. Unit D secrets remain blocked by the thread `0009` service-role/vault prerequisite.
+
+### Aegis — 2026-06-15 (Unit B close-out)
+
+**Verdict: Unit B CLOSED for live dashboard semantic recall under current internal scope.**
+
+Atlas's live smoke evidence satisfies the gate: valid member JWT returned ranked metadata-only results, no/invalid JWT returned `401`, non-member returned `403`, bad args including extra keys returned `400`, the full CF Worker → Supabase Auth → active-member check → Gemini embed → `recall_memory` chain was proven, and `nodejs_compat` is not required. Aegis additionally re-checked the live public endpoint for missing JWT (`401`) and unexpected key (`400`) and repeated local build/function compile plus `dist/` secret-marker scan.
+
+Standing deferrals remain binding before broad rollout or external/client-facing usage: add per-user/IP rate limiting, and if recall auditing is added, log only safe metadata, not full query text. Unit B does not change the Unit D secrets gate from thread `0009`.
