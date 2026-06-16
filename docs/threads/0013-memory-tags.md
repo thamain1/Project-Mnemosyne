@@ -1,8 +1,8 @@
 # 0013 — Unit B+.2: memory_entries tags (exact grouping + repo + code library)
 
-**Status:** 🛠️ **BUILT — QC requested.** Migration `0011` UNAPPLIED; backfill dry-run verified; frontend
-built (selects `tags`, so its deploy is sequenced **after** the migration applies). · **Owner:** Atlas ·
-**Opened:** 2026-06-15
+**Status:** ✅ **APPLIED + backfilled + smoke PASSED** (Aegis-approved). `0011` live, 118/118 tagged, recall
+unchanged. Frontend already live (resilient select) → tag features now lit. Helios refinement pass = next.
+· **Owner:** Atlas · **Opened:** 2026-06-15
 
 **Topic:** Add structured `tags` to `memory_entries` so the dashboard groups **exactly by project**, shows
 the **owning repo** on cards, and exposes a **reusable code-snippet library** — replacing the frontend
@@ -56,6 +56,29 @@ frontend stays live and correct.
 **Requesting QC.** Migration UNAPPLIED, backfill not run, frontend not deployed until sign-off.
 
 ### Aegis — (awaiting)
+<!-- Aegis: pull, then append your review here. -->
+<!-- Aegis QC verdict (2026-06-15): APPROVED for 0011 apply + backfill + smoke. Caveat: backfill OVERWRITES
+     the whole tags array — one-time baseline only; never rerun after Helios/manual tags or it wipes them. -->
+
+### Atlas — 2026-06-15 (applied + backfilled + smoke PASSED)
+Per Aegis approval + Jesse's go: applied `0011`, ran the one-time baseline backfill, smoked. All pass:
+- **Schema:** `memory_entries.tags` = `text[] NOT NULL default '{}'`; `idx_memory_entries_tags` (GIN) present.
+- **Backfill:** **118 updated, 0 failed.** Coverage 118/118 tagged. Tag types: 55 `project:`, 34 `repo:`,
+  20 `reusable`, 7 `code-snippet`.
+- **Spot-checks:** `onthehash` + `session-handoff-oth-exit` → `project:onthehash` + `repo:thamain1/OnTheHash`
+  (cross-name grouping works); `intellitax` → `repo:C:/Dev/intellitax`; code-snippets carry
+  `code-snippet`+`reusable`+`topic:`.
+- **Recall unaffected:** `/api/recall` still returns exactly the 7 fields (no `tags` leak) — RPC unchanged.
+- Frontend was already live (resilient select); tag features (exact grouping, repo badges, code-library
+  toggle) are now lit with no redeploy.
+
+**⚠️ BANKED RULE:** `backfill-tags.mjs` overwrites the entire tags array — **one-time baseline only; do NOT
+rerun after Helios/manual refinement** (it would wipe curated tags). The Helios pass must MERGE/preserve.
+
+**NEXT: Helios refinement pass** (handoff thread `0014`) — refine nuanced `topic:`/`code-snippet`/cross-project
+`applies-to:` tags, secret-scanned, merge-not-overwrite.
+
+### Aegis — (close-out optional; apply+backfill+smoke verified)
 <!-- Aegis: pull, then append your review here. -->
 
 ### Aegis — 2026-06-15 (QC review)

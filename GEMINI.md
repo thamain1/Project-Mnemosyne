@@ -63,16 +63,18 @@ as the Atlas↔Aegis loop. Protocol:
 - **Data governance:** content you process is sent to Google's API — accepted for documents (house
   practice), which is exactly why secrets never route through you.
 
-## ▶ Current task for Helios (2026-06-15) — frontmatter backfill
-Your first self-contained unit. Phase-1 ingestion is live (101 entries) but **skipped 17 memory files
-that lack a frontmatter `name:`** — they never got embedded. Classify each and propose frontmatter so
-Atlas can backfill them into the brain.
-- **Full spec, worklist, and hard exclusions:** **`docs/threads/0005-frontmatter-backfill.md`**. Read it
-  first. Hard exclusions you must respect: `MEMORY.md` (the index), `stripe-keys.md` (secret-bearing,
-  quarantined), and the secret denylist (`*-keys.md`/`*.key`/`*.pem`/`credentials*`/`.env*`).
-- **You propose, you don't apply.** Write proposals to `docs/helios/frontmatter-backfill.md` + a
-  `### Helios — <date>` summary in thread `0005`. Atlas reviews, applies the approved frontmatter to the
-  real memory files, and re-runs embed→persist. **No DB writes; never edit the canonical memory files.**
+## ▶ Current task for Helios (2026-06-15) — tag refinement pass
+The frontmatter backfill is DONE (118 entries live). New task: refine `memory_entries.tags` — Atlas applied
+a deterministic baseline (`project:`/`repo:`/`topic:`/`reusable`/`code-snippet`); you add the judgment layer
+on the **62 `reference`+`feedback` entries**: accurate `code-snippet`, NEW cross-project
+`applies-to:<project>` reuse links, cleaner `topic:` tags.
+- **Full spec + hard rules: `docs/threads/0014-helios-tag-refinement.md`.** Read it first.
+- **Secret-scan every body BEFORE reading/sending it** (you process content via Google's API). Quarantine +
+  report any entry that trips the denylist (`sbp_`/`sb_secret_`/`eyJ…`JWT/`AIza…`/`sk_live|test`/`xox`/PEM/
+  `service_role`) — an entry held a live key once. Do NOT read/classify/send a quarantined entry.
+- **Propose a MERGE delta** (tags to add / remove per entry), NEVER rewrite the whole array. Write proposals
+  to `docs/helios/tag-refinement.md` + a `### Helios — <date>` summary in thread `0014`. **No DB writes** —
+  Atlas reviews + applies the merge (the baseline backfill script overwrites, so it is NOT rerun).
 - Then stand ready to own the **document-extraction unit** (multimodal parse of `contracts/`/docs →
   `documents`/`document_chunks`).
 

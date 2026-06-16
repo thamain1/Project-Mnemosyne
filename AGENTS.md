@@ -76,6 +76,12 @@ live bus. Policy: confirm before we adopt.
 ### ✅ For Helios — frontmatter backfill (2026-06-15) — DONE
 Completed: Helios classified all 17, Atlas applied + ingested 16 then redacted + ingested `intellitax.md`
 as the 17th (brain at 118 entries / 81 chunks). Aegis approved the reconciliation. See
-`docs/threads/0005-frontmatter-backfill.md`. **No open Helios task right now** — stand by; the next
-data-plane unit (contracts/document extraction → `documents`/`document_chunks`) will be assigned here when
-ready. Do not re-run the backfill.
+`docs/threads/0005-frontmatter-backfill.md`. Do not re-run the backfill.
+
+### ▶ For Helios — tag refinement pass (2026-06-15)
+`memory_entries.tags` is live with a deterministic baseline. Refine the judgment layer on the **62
+reference+feedback entries**: accurate `code-snippet`, NEW cross-project `applies-to:<project>` links, and
+cleaner `topic:` tags. **Full spec + hard rules in `docs/threads/0014-helios-tag-refinement.md`.**
+HARD: secret-scan each body BEFORE reading/sending (quarantine + report any hit — an entry held a live key
+once); **propose a MERGE delta (+adds/−removes), never rewrite the array**; write proposals to
+`docs/helios/tag-refinement.md` + a thread `0014` summary; **no DB writes** — Atlas reviews + applies the merge.
