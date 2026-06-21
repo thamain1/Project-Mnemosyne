@@ -24,15 +24,44 @@ export const slugify = (f) => f.replace(/\.md$/i, '').toLowerCase().replace(/[^a
 // Secret scan — mirrors scripts/ingest-embed.mjs SECRET_PATTERNS. Content embeds via Google's API, so any
 // secret-bearing remember is refused (not stored, not sent).
 const SECRET_PATTERNS = [
-  /sk_(live|test)_[A-Za-z0-9]{8,}/, /\bsbp_[A-Za-z0-9]{20,}/, /\bsb_(secret|publishable)_[A-Za-z0-9_]+/,
+  /sk_(live|test)_[A-Za-z0-9]{8,}/, /\bsbp_[A-Za-z0-9]{20,}/, /\bsb_secret_[A-Za-z0-9_]+/,
   /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}/, /AIza[0-9A-Za-z_\-]{30,}/,
   /\bAKIA[0-9A-Z]{16}\b/, /\bghp_[A-Za-z0-9]{30,}/, /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /xox[baprs]-[A-Za-z0-9-]{8,}/,
-  /\b(api[_-]?key|secret|password|passwd|service_role|access_token|bearer)\b\s*[:=]\s*['"]?\S{8,}/i,
+  /\bwhsec_[A-Za-z0-9]{16,}/,                              // Stripe webhook signing secret
+  /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/,          // SendGrid API key
+  /\bxkeysib-[A-Za-z0-9]{16,}/,                            // Brevo
+  /postgres(ql)?:\/\/[^\s:@/]+:[^\s@/]+@/,                 // DB conn string with embedded password
+  /\b(api[_-]?key|secret|password|passwd|service_role|access_token|bearer)\b\s*[:=]\s*['"]?(?!\{\{)\S{8,}/i,
 ]
+// NOTE: `sb_publishable_` is intentionally NOT here — publishable/anon keys are public by design.
 export function scanSecret(text) {
   for (const re of SECRET_PATTERNS) if (re.test(text)) return `content matches /${re.source.slice(0, 22)}…/`
   return null
+}
+
+// All secret spans in `text`, sorted by position, de-duplicated by (index,length). Used by the memory
+// mirror's sanitize step to redact precisely. Patterns are the SAME single source as scanSecret.
+export { SECRET_PATTERNS }
+export function findSecretMatches(text) {
+  const hits = []
+  for (const re of SECRET_PATTERNS) {
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+    let m
+    while ((m = g.exec(text)) !== null) {
+      if (m[0]) hits.push({ value: m[0], index: m.index })
+      if (m.index === g.lastIndex) g.lastIndex++
+    }
+  }
+  hits.sort((a, b) => a.index - b.index || b.value.length - a.value.length)
+  // drop spans fully contained in an already-kept earlier span (avoid double-redacting overlaps)
+  const kept = []
+  for (const h of hits) {
+    const end = h.index + h.value.length
+    if (kept.some((k) => h.index >= k.index && end <= k.index + k.value.length)) continue
+    kept.push(h)
+  }
+  return kept
 }
 
 // Strict, bounded arg validation (no coercion), mirroring the recall slice's discipline.

@@ -1165,3 +1165,67 @@ git-vs-database boundary (§14), the memory architecture (§16), or a blocking g
 requires a new review round and a version bump.**
 
 — Atlas, Aegis, Helios, Jesse — 2026-06-20.
+
+---
+
+## 19. Sealed Credential standard (v1.6 — replaces "scan-and-hope" with "seal-and-know")
+
+**Why.** The G5 regex scanner is a *blocklist*: it only catches secret shapes it has patterns for.
+Real credential files broke it — `stripe-keys.md` (Sultan of Swing) held a Stripe **webhook signing
+secret**, a **SendGrid API key**, and plaintext **FedEx/USPS passwords** that the scanner did **not**
+flag (and a password can't reliably be pattern-matched at all). Relying on detection to redact =
+guaranteed eventual leak. The fix is to make secrets **explicitly marked at the source**, so the
+mirror redacts what is *declared*, not what it can *guess*. The scanner is demoted to a backstop
+that catches anything left *unsealed*.
+
+### 19.1 The convention
+
+- **File marker** — first line of any credentials file:
+  ```
+  <!-- CREDENTIALS-FILE -->
+  ```
+- **Per-secret seal** — wraps each secret value inline (value is preserved locally):
+  ```
+  {{SECRET service=<svc> env=<env> scope=<scope> sensitivity=<team|restricted|admin>}}VALUE{{/SECRET}}
+  ```
+  - `service` required; `env`/`scope` optional; `sensitivity` **defaults to `restricted`** (must
+    opt *into* `team`). Attributes map 1:1 to `set_secret`'s `meta`.
+  - Reuses the existing `{{…}}` house convention (cf. `{{fill}}` / `{{draft::}}` in contract templates).
+- **A "credentials file" is** any file that (a) carries the `<!-- CREDENTIALS-FILE -->` marker, OR
+  (b) matches a credential-name pattern: `supabase.md`, `*-keys.md`, `*credentials*`, `secrets*.md`,
+  `*.secrets.md`, `*-creds.md`.
+
+### 19.2 First-read rule (behavioral — also in CLAUDE.md)
+
+On **creating** or **first-reading** a credentials file, before anything else:
+1. Add the `<!-- CREDENTIALS-FILE -->` marker.
+2. Wrap **every** secret value in a `{{SECRET …}}…{{/SECRET}}` seal — including ones a scanner would
+   miss (passwords, vendor logins, webhook secrets). Use judgment, not regex, to decide what's secret.
+3. Values stay inline locally (the file remains complete and usable); only the *markup* is added.
+
+Publishable/anon keys (`pk_*`, `sb_publishable_*`) are **public by design** — do **not** seal them.
+
+### 19.3 Upload behavior (mirror push)
+
+- Each `{{SECRET …}}V{{/SECRET}}` → `set_secret(meta from attrs, V)` → replaced in the mirrored copy
+  with `{{VAULTED service=… env=… → get_secret('<id>')}}`. Idempotent (set_secret upserts on identity).
+- **Fail closed:** after sealing, the hardened regex backstop re-scans. If a credentials file still
+  has any secret-shaped content **outside** a seal — or is name/marker-detected as credentials but
+  contains an unsealed secret — the push **refuses** that file and reports it. Seal it, re-run.
+- **Denylist option:** a credentials file may instead be marked `<!-- CREDENTIALS-FILE: do-not-mirror -->`
+  to exclude it from the mirror entirely (for pure credential dumps that shouldn't leave the machine).
+
+### 19.4 Backstop hardening
+
+The regex backstop (client `mcp/lib/remember-core.mjs` + server `0018` RPC `c_secret_re`) is widened
+beyond the original set to include at least: `whsec_…` (Stripe webhook), `SG\.[A-Za-z0-9_-]{16,}…`
+(SendGrid), `xkeysib-…` (Brevo), `AKIA…`, `ghp_…`, `eyJ…` JWT, `sk_(live|test)_…`, `sbp_…`,
+`sb_secret_…`. Publishable keys are **removed** from the secret set (they are public). The backstop
+is a safety net for *unsealed* secrets — the seal is the primary mechanism.
+
+### 19.5 Status
+
+Standard ratified 2026-06-20 (Jesse). Worked example: `stripe-keys.md` sealed on first-read.
+Implementation: seal parser + credentials-file detection + fail-closed wired into the mirror push;
+`set-secret` helper for the vaulting step; backstop patterns widened. This is a **blocking** part of
+the mirror (sits alongside §18.1 G5) — no credentials file mirrors until it is sealed or denylisted.
