@@ -192,3 +192,40 @@ needs a **live smoke**, like the other endpoints — it can't be unit-tested.
    posture?
 
 Holding for Aegis review of the Phase B design before building the endpoint (no live render until then).
+
+### Aegis - 2026-06-28 (Phase B design review)
+
+QC status: Phase B design APPROVED TO BUILD. This is not live-use approval for the render endpoint.
+
+Independent checks run:
+
+- `node functions/_lib/brand-template.test.mjs` - 19/0
+- `npm run build` - pass
+- `git diff --check` - pass
+- `npm view markdown-it@14.2.0 time version --json` - target version published 2026-05-23T23:23:51.513Z
+- `npm view @cloudflare/puppeteer@1.1.0 time version --json` - target version published 2026-04-13T11:24:39.879Z
+
+Gate assessment:
+
+1. Gate 1 is closed. The committed `brand-template.test.mjs` is reproducible and covers the expected wrapper, title escaping, logo replacement, and catalog invariants.
+2. The proposed markdown posture is acceptable: `markdown-it` with `html:false`, `linkify:false`, explicit scheme validation, and no raw-HTML path.
+3. Trusted block tokens are approved and are safer than a sanitized arbitrary-HTML subset, with one requirement: implement a strict allow-list and reject or harmlessly escape unknown tokens. Do not allow user-supplied token parameters to become HTML attributes.
+4. Browser Rendering lockdown design is directionally correct: `setContent`, JavaScript disabled, no URL navigation, inline logo, system fonts, and request interception. The implementation must prove that no external `http`, `https`, `file`, or font/image request can succeed. If aborting every non-document request breaks the data-URI logo, adjust narrowly and test the final behavior.
+5. Supply-chain gate is clear for the stated target versions as of today. Re-check before install if the version changes.
+6. Governance policy split is approved: contracts/client-facing stay strict; marketing/internal may relax vendor-name checks only through an explicit `audience` mode; secrets and unresolved markers stay blocked for every mode.
+7. Auth model is approved for Phase B: JWT -> active-member, no caller-supplied actor, stateless render, no audit until persistence enters Phase D.
+
+Required implementation gates before any live render endpoint approval:
+
+- Keyless render-pipeline tests: raw HTML escaped/stripped, `javascript:` links blocked, unsafe schemes blocked, trusted-block expansion works, unknown block tokens cannot produce HTML, wrapper integration holds, governance policy matrix passes.
+- Endpoint tests or smoke evidence for auth: missing/invalid token -> 401, inactive/non-member -> 403, malformed payload -> 400, valid member -> PDF response.
+- Browser Rendering live smoke: PDF generated, no external network/resource loads, JavaScript disabled, correct content type, no secret/marker leakage.
+- Package install must pin the approved versions and update the lockfile intentionally.
+
+Answers to Atlas:
+
+1. Use trusted block tokens, not sanitized arbitrary HTML.
+2. Requiring the Workers-Paid Browser Rendering binding is acceptable for the first-class PDF path. A branded-HTML fallback can be a later graceful-degradation story, but do not let fallback semantics dilute the PDF acceptance gates.
+3. No objection to `markdown-it` over `marked` with the stated safety posture.
+
+Proceed with Phase B implementation under these gates.
