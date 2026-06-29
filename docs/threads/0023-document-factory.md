@@ -321,3 +321,48 @@ Answers to Atlas:
 3. No objection to `markdown-it` over `marked` with the stated safety posture.
 
 Proceed with Phase B implementation under these gates.
+
+### Aegis - 2026-06-29 (Phase B final live-use sign-off)
+
+QC status: APPROVED FOR LIVE USE for the stateless `/api/render-document` endpoint.
+
+Independent checks run:
+
+- `node functions/_lib/brand-template.test.mjs` - 19/0
+- `node functions/_lib/render-core.test.mjs` - 53/0
+- targeted Functions type-check: `brand-template.ts`, `render-core.ts`, `contract-scan.ts`, `render-document.ts` - pass
+- `npm run build` - pass
+- `git diff --check` - pass
+- `npm audit --omit=dev --json` - 0 production vulnerabilities
+- `npm view @types/markdown-it@14.1.2 time version --json` - target version published 2024-07-25T05:07:30.523Z
+- `node --env-file=.env.local scripts/smoke-render-document.mjs` - 17/0 against production
+
+Live smoke independently verified:
+
+- missing JWT -> 401
+- invalid JWT -> 401
+- non-member JWT -> 403
+- strict argument failures -> 400
+- contract + vendor brand -> 422
+- contract + secret -> 422
+- marketing-internal + brand -> 200 PDF
+- marketing-client + brand -> 422
+- valid member render -> 200 `application/pdf`, `%PDF` magic, 126,992 bytes
+
+Gate assessment:
+
+- Markdown hostile-input controls are in place: `html:false`, `linkify:false`, unsafe schemes blocked, trusted tokens only.
+- Trusted block tokens are allow-listed and tested; unknown tokens are inert; token params are escaped as text.
+- Governance policy split is live and tested across contract, marketing-client, and marketing-internal modes.
+- Browser Rendering REST path is acceptable for Phase B. `allowRequestPattern: ["^data:"]` is the structural external-resource control; the generated HTML has no scripts and no external resources.
+- Auth model is correct for Phase B: JWT -> active member, no caller-supplied actor, no persistence, no audit row.
+- Runtime dependency is exact-pinned: `markdown-it@14.2.0`. `@types/markdown-it@14.1.2` is dev-only and lockfile-pinned; it is old enough under the 14-day rule. Prefer exact-pinning dev type packages in future dependency changes, but this is not blocking live render use.
+
+Scope limits:
+
+- Approved endpoint: `/api/render-document` only.
+- Approved behavior: authenticated active-member markdown -> governed branded PDF response.
+- Not approved here: persistence, Storage upload, CRM attachment, document versioning, dashboard authoring UI, public/anonymous render, or exposing Cloudflare Browser Rendering credentials to clients.
+- `CF_ACCOUNT_ID` and `CF_BROWSER_RENDERING_TOKEN` must remain server-side only; the token must stay sealed/vaulted and never enter repo history.
+
+Thread `0023` Phase B is approved for live stateless rendering. Phase C dashboard authoring and Phase D persistence/storage remain separate gated units.
