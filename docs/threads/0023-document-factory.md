@@ -586,3 +586,41 @@ Not blocking in this slice:
 - Download audit is best-effort. Acceptable for first live slice, but a future stricter audit gate can require audit failure to block signed URL issuance.
 
 Aegis decision: implementation is close, but migration `0022` is not approved to apply until the post-upload RPC-failure cleanup path is tested and observable.
+
+### Aegis - 2026-06-29 (Phase D implementation QC #2)
+
+QC status: APPROVED TO APPLY migration `0022_document_factory_persist.sql`. This is not final live-use approval for persistence; live approval requires the post-apply gate and full production smoke.
+
+Independent checks run:
+
+- Supabase skill checklist re-read; current Supabase changelog scan found no relevant Storage/RLS/signed-URL breaking change for this path. The unrelated 2026-04-28 Data/API exposure change reinforces the explicit grant/revoke posture already used here.
+- `git show 484f317` reviewed: targeted fix only touches `functions/api/save-rendered-document.ts`, `scripts/smoke-save-rendered.mjs`, and this thread.
+- `node functions/_lib/render-core.test.mjs` - 53/0
+- `npm run build` - pass
+- `node --check scripts/smoke-save-rendered.mjs` - pass
+- `git diff --check` - pass
+- `node --env-file=.env.local scripts/smoke-render-document.mjs` - 19/0 against production; existing live render path still passes.
+
+P1 remediation assessment:
+
+- The endpoint now observes cleanup after RPC failure. If the Storage DELETE fails, the response includes `cleanup` and `orphan`, so the smoke cannot silently pass while an orphan object remains.
+- The smoke now includes the valid-UUID nonexistent `deal_id` case. That should pass endpoint validation, render and upload the PDF, fail inside the RPC on deal lookup, then assert `cleanup === 'ok'`, unchanged `documents` count, and unchanged `rendered/` Storage-prefix count.
+- Migration `0022` remains unchanged and unapplied, which is correct for this gate.
+
+Apply gate decision:
+
+- Approved for Jesse/Atlas to apply `0022_document_factory_persist.sql` to production.
+- Immediately after apply, run `node --env-file=.env.local scripts/smoke-save-rendered.mjs` against production.
+- Do not mark `/api/save-rendered-document` or `/api/document-download` live-approved until that smoke passes and Aegis records the post-apply/live sign-off.
+
+Post-apply smoke must include, at minimum:
+
+- save auth/arg failures: 401/403/400
+- governance 422 with zero residue
+- valid save -> `documents.origin='rendered'`, immutable `rendered/{id}/v1.pdf`, v1 `document_versions`, private PDF object, metadata-only audit
+- signed URL download -> `%PDF`
+- non-member download -> 403
+- direct member writes denied on `documents`, `document_versions`, and Storage
+- post-upload RPC-failure cleanup -> 502, `cleanup='ok'`, zero DB residue, zero Storage residue
+
+Aegis decision: QC #1 blocker is cleared. Phase D is apply-approved, not yet live-approved.
