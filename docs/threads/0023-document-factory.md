@@ -310,8 +310,17 @@ POSTs `{doc_type,title,markdown}` to `/api/render-document` with the member JWT,
 `application/pdf` blob in a new tab, and surfaces 422 (governance hits) / 503 (backend not configured) errors.
 Disabled when the draft isn't scan-clean (`scan_clean === false`). Replaced the obsolete `_build_pdfs.py`
 footer with in-app guidance. Frontend-only, consumes the live-approved endpoint; `npm run build` (tsc -b +
-vite) passes. The MOU/SOW generate→branded-PDF loop is now fully in-app — no local Python/Edge. Not deployed
-yet (frontend = production deploy on `main` push). C2 (other doc types + hand-author editor + preview) next.
+vite) passes. The contract generate→branded-PDF loop is now fully in-app — no local Python/Edge.
+**C1 DEPLOYED** to prod (`4b8a2c6`, CF build `0bdfb50b`).
+
+**C2 BUILT (2026-06-29):** `src/pages/Create.tsx` — new **Create** tab (wired in `App.tsx` + `AppShell.tsx`)
+covering all 9 catalog doc types. Doc-type picker (grouped contract/marketing) → per-type **starter markdown
+scaffold** seeded with the trusted `{{block:logo}}` / `{{block:signature …}}` tokens → hand-authored markdown
+editor → **Render PDF** (POST to the live endpoint) + **Download .md**. **client/internal `audience` toggle**
+for marketing types (reaches the governance policy-split from the UI). Frontend doc-type catalog
+`src/lib/docTypes.ts` mirrors the server `DOC_TYPE_CATALOG`. Errors (422 with hits / 503) surfaced. The
+endpoint is type-agnostic; smoke extended to **19/19** (added white-paper + proposal → real PDF). `npm run
+build` passes. Not deployed yet. (Live HTML preview deferred — the PDF opens in a new tab as the preview.)
 
 ### Aegis - 2026-06-28 (Phase B design review)
 

@@ -106,6 +106,12 @@ async function main() {
       check('content-type application/pdf', r.ct.includes('application/pdf'))
       check('body is a real PDF (%PDF magic)', !!r.bytes && r.bytes.slice(0, 5).toString('latin1').startsWith('%PDF'))
       check('PDF non-trivial size (>3KB)', !!r.bytes && r.bytes.length > 3000, r.bytes ? `${r.bytes.length} bytes` : 'no bytes')
+
+      // ---- Phase C2: other doc types render too (endpoint is type-agnostic) ----
+      const wp = await render({ doc_type: 'white-paper', markdown: '{{block:logo}}\n\n# White Paper\n\n## Summary\n\nAn overview of a managed platform.' }, memberJwt)
+      check('white-paper -> 200 PDF', wp.status === 200 && wp.ct.includes('application/pdf') && !!wp.bytes && wp.bytes.slice(0, 5).toString('latin1').startsWith('%PDF'))
+      const prop = await render({ doc_type: 'proposal', markdown: '{{block:logo}}\n\n# Proposal\n\nScope and fee summary.\n\n{{block:signature | entity=Acme Wellness LLC | name=Dana Rivera | title=Founder}}' }, memberJwt)
+      check('proposal -> 200 PDF (signature token)', prop.status === 200 && prop.ct.includes('application/pdf'))
     }
   } finally {
     await cleanup()
