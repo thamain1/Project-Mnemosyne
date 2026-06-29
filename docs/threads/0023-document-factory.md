@@ -1,12 +1,16 @@
 # 0023 — Document Factory: team-authored docs → branded 4ward layout → PDF
 
-**Status:** Phase A ✅ + **Phase B ✅ LIVE (Aegis live-use sign-off `a9923cb`, 2026-06-29)** — owner Atlas.
-`/api/render-document` is live in production: authenticated active-member markdown → governed branded 4ward
-PDF (markdown-it html:false + trusted tokens, governance policy-split, Browser Rendering REST + data-only
-lockdown, stateless). Scope: that endpoint only — NOT persistence/Storage/CRM/versioning/dashboard UI/public
-render. **Phase C (dashboard authoring UI)** + **Phase D (persist/Storage/CRM/versioning)** remain separate
-gated units. Non-blocking follow-up (Aegis): prefer exact-pinning dev type packages — fold `@types/markdown-it`
-`^14.1.2` → exact into the next dependency change.
+**Status: ✅ COMPLETE — Document Factory A–D LIVE (Aegis final sign-off `1df248f`, 2026-06-29).** Owner Atlas.
+The full team-facing loop is in production: **Generate** tab (AI-assisted MOU/SOW draft) + **Create** tab
+(hand-author any of 9 doc types) → governed branded 4ward PDF (markdown-it html:false + trusted tokens,
+governance policy-split, Browser Rendering REST + data-only lockdown) → **Render PDF** (in-browser) or **Save
+to brain** (private Storage, versioned, metadata-only audit) → **Download** (member-auth 60s signed URL) →
+CRM-attachable. Migrations 0001–0022 applied. Phase smokes: render 19/0, save/download 24/0.
+**Scope NOT covered (future, separate gated units):** arbitrary/MCP client file upload (thread `0021`),
+user-supplied binary upload, RAG/semantic indexing of rendered PDFs, public/anonymous download, DOCX output.
+Non-blocking debt (done): `@types/markdown-it` exact-pinned.
+
+(Original Phase-B-era status preserved below in history.)
 
 ## Goal (Jesse, 2026-06-28)
 
