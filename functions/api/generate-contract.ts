@@ -212,8 +212,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     md = md.split(marker).join(val)
   }
 
-  // safety: no unfilled markers should remain
-  const leftover = md.match(/\{\{[^}]+\}\}/g)
+  // safety: no unfilled markers should remain (excludes {{block:…}} trusted render tokens — those are
+  // intentional and expanded later by the Phase-B render core, not failed substitutions)
+  const leftover = md.match(/\{\{(?!block:)[^}]+\}\}/g)
   if (leftover && leftover.length) warnings.push(`Unfilled markers remained: ${[...new Set(leftover)].join(', ')}`)
 
   // prohibited-content scan (warn-only here; /api/save-document blocks on the same scan before persisting)

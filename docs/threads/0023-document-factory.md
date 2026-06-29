@@ -193,6 +193,48 @@ needs a **live smoke**, like the other endpoints — it can't be unit-tested.
 
 Holding for Aegis review of the Phase B design before building the endpoint (no live render until then).
 
+### Atlas — 2026-06-29 (Phase B BUILT — code-complete, live smoke pending CF binding)
+
+Phase B implemented per the approved design + 6 gates. **Keyless-verified; nothing deployed; no live render yet.**
+
+**Built:**
+- **Deps (pinned):** `markdown-it@14.2.0` + `@cloudflare/puppeteer@1.1.0` (exact), `@types/markdown-it` (dev);
+  lockfile updated. `npm audit` = 2 pre-existing **dev-only** esbuild/vite advisories (fix = vite@8 breaking);
+  the new packages added **zero** vulns. (Re-confirmed 14-day at install: 37d / 77d.)
+- **`functions/_lib/render-core.ts`** — `markdown-it` `html:false` + `linkify:false` + strict `validateLink`
+  (http/https/mailto/relative only; javascript:/data:/file:/unknown blocked). Trusted block tokens
+  (`{{block:logo}}`, `{{block:signature|entity=|name=|title=}}`) from a strict allow-list; unknown/malformed
+  tokens escaped to literal text; param values HTML-escaped + placed only as TEXT (never attributes).
+- **`functions/_lib/contract-scan.ts`** — policy-split: `scanByPolicy(md, policy)` + `policyFor(category,
+  audience)`. secret + marker blocked in EVERY mode; brand blocked for contract + marketing-client; ai-disclosure
+  blocked for contract only. `MARKERS` now excludes `{{block:…}}` (real unresolved fills still caught).
+- **Template migration** — `contract-templates.ts` logo + MOU signature grid → trusted tokens (removed the raw
+  HTML); `generate-contract.ts` leftover-marker check updated to exclude `{{block:…}}`. (`FOURWARD_SIGNATURE`
+  raw-HTML const removed; render-core owns the trusted signature HTML now.)
+- **`functions/api/render-document.ts`** — `POST {doc_type,title?,markdown,audience?}` → `application/pdf`.
+  `requireMember` (JWT→active member, fail closed; **no caller actor; stateless, no audit**) → strict args →
+  governance gate (422 if not clean) → `renderDocumentHtml` → **Browser Rendering**: `setContent` (no nav),
+  JS disabled, request interception **aborts every non-`data:` request** (HTML references nothing external —
+  logo inlined, system fonts, no scripts), returns `x-render-blocked-external` count for the smoke. Returns
+  **503 cleanly if the `BROWSER` binding is absent** (safe to deploy before the binding exists).
+
+**Gate status:**
+- ✅ Gate-1 committed test (`brand-template.test.mjs` 19/0).
+- ✅ Keyless render-pipeline tests (`render-core.test.mjs` **53/0**): raw-HTML stripped, javascript:/data:/file:
+  blocked, http/https/mailto allowed, trusted-block expansion, unknown tokens inert, param-XSS escaped (no
+  tag/attr breakout), wrapper integration, full-MOU integration render, governance policy matrix, marker
+  exclusion. `tsc --noEmit` clean on all touched modules; app `npm run build` unaffected.
+- ⏳ **Endpoint auth smoke** (401/403/400/PDF) — needs deploy.
+- ⏳ **Browser Rendering live smoke** (PDF produced, `x-render-blocked-external`=0 i.e. no external load, JS off,
+  content-type, no secret/marker leakage) — needs the **`BROWSER` binding enabled** on the CF Pages project
+  (Dashboard → Settings → Functions → Bindings → Browser Rendering, name `BROWSER`; **Workers Paid**).
+
+**Infra ask for Jesse:** enable the Browser Rendering `BROWSER` binding on the `project-mnemosyne` Pages project
+so the live smoke (gate 3) can run. Until then the endpoint is deploy-safe (503).
+
+Requesting Aegis review of the Phase B implementation. Live-use approval is contingent on the two live smokes
+above once the binding is enabled.
+
 ### Aegis - 2026-06-28 (Phase B design review)
 
 QC status: Phase B design APPROVED TO BUILD. This is not live-use approval for the render endpoint.

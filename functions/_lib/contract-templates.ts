@@ -33,23 +33,16 @@ export const DOC_TYPES = ['mou', 'sow'] as const
 export type DocType = (typeof DOC_TYPES)[number]
 
 // The 4ward party block + logo are constant across every document.
-const LOGO_BLOCK = `<p align="center">
-  <img src="./4ward-motion-logo.png" alt="4ward Motion" width="240" />
-</p>`
+// LOGO + signature are emitted as TRUSTED BLOCK TOKENS (not raw HTML), so the Phase-B render core
+// (markdown-it html:false) renders them from its own trusted templates instead of escaping raw HTML.
+// See functions/_lib/render-core.ts TRUSTED_BLOCKS ('logo', 'signature').
+const LOGO_BLOCK = `{{block:logo}}`
 
 const FOURWARD_PARTY = `**4ward Motion Solutions, Inc.**, a Delaware corporation ("4ward")
 2810 N Church St, #430080
 Wilmington, DE 19802
 Attn: Jesse Morgan, Co-Founder and CTO
 Email: jmorgan@4wardmotions.com`
-
-const FOURWARD_SIGNATURE = `<div class="signature-block">
-    <p class="signature-party"><strong>4ward Motion Solutions, Inc.</strong></p>
-    <p><span class="signature-label">By:</span><span class="signature-line"></span></p>
-    <p><span class="signature-label">Name:</span>Jesse Morgan</p>
-    <p><span class="signature-label">Title:</span>Co-Founder and CTO</p>
-    <p><span class="signature-label">Date:</span><span class="date-line"></span></p>
-  </div>`
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MOU
@@ -285,16 +278,7 @@ This MOU, together with the SOW, is the entire agreement of the Parties regardin
 
 The Parties execute this MOU as of the Effective Date.
 
-<div class="signature-grid">
-  ${FOURWARD_SIGNATURE}
-  <div class="signature-block">
-    <p class="signature-party"><strong>{{client_entity}}</strong></p>
-    <p><span class="signature-label">By:</span><span class="signature-line"></span></p>
-    <p><span class="signature-label">Name:</span>{{client_signatory_name}}</p>
-    <p><span class="signature-label">Title:</span>{{client_signatory_title}}</p>
-    <p><span class="signature-label">Date:</span><span class="date-line"></span></p>
-  </div>
-</div>
+{{block:signature | entity={{client_entity}} | name={{client_signatory_name}} | title={{client_signatory_title}}}}
 
 ---
 
