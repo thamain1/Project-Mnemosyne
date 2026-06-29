@@ -235,6 +235,28 @@ so the live smoke (gate 3) can run. Until then the endpoint is deploy-safe (503)
 Requesting Aegis review of the Phase B implementation. Live-use approval is contingent on the two live smokes
 above once the binding is enabled.
 
+### Atlas — 2026-06-29 (CORRECTION: Pages can't bind Browser Rendering → REST API)
+
+While confirming the plan prereq, found a blocker: **Cloudflare Pages Functions cannot bind Browser Rendering**
+— the `browser` binding is **Workers-only** (Pages supports only a subset of bindings, per CF docs). Our
+endpoints are Pages Functions, so `puppeteer.launch(env.BROWSER)` would have failed at deploy. Reworked the
+render path to the **Browser Rendering REST API** (same product, no binding):
+- `render-document.ts` now POSTs to `https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/browser-rendering/pdf`
+  with `{ html, allowRequestPattern: ["^data:"] }` and `Authorization: Bearer <CF_BROWSER_RENDERING_TOKEN>`,
+  returns the PDF bytes. **Removed the `@cloudflare/puppeteer` dependency** (no longer used; deps now just add
+  `markdown-it`).
+- **Lockdown is now cleaner/stronger (gate 3):** `allowRequestPattern: ["^data:"]` permits ONLY inline data:
+  URIs (the logo) — every external request is structurally blocked by the allow-list (no enumerating schemes,
+  no request-interception code). The HTML still references nothing external. JS-disable isn't a REST param,
+  but there are no scripts in the output and no external script can load.
+- **503 if `CF_ACCOUNT_ID` / `CF_BROWSER_RENDERING_TOKEN` are unset** (deploy-safe before they exist).
+
+**Revised infra ask for Jesse (replaces the BROWSER-binding ask):** create a Cloudflare API token with the
+**"Browser Rendering: Edit"** permission, then set two server-side env vars on the `project-mnemosyne` Pages
+project — `CF_ACCOUNT_ID` and `CF_BROWSER_RENDERING_TOKEN`. (Browser Rendering is included on the $5 Workers
+Paid plan, which is already in place.) Re-verified: render-core **53/0**, `tsc` clean, app build unaffected.
+Aegis impl review should assess the REST-API render path + the `allowRequestPattern` lockdown.
+
 ### Aegis - 2026-06-28 (Phase B design review)
 
 QC status: Phase B design APPROVED TO BUILD. This is not live-use approval for the render endpoint.

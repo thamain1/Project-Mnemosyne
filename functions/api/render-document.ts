@@ -3,22 +3,27 @@
 // POST { doc_type, title?, markdown, audience? } -> application/pdf (branded 4ward layout).
 // Pipeline: requireMember (JWT -> active member, fail closed) -> strict args -> governance gate
 // (scanByPolicy, by catalog category + audience; refuse 422 if not clean) -> renderDocumentHtml
-// (markdown-it html:false + trusted tokens) -> Cloudflare Browser Rendering -> PDF.
+// (markdown-it html:false + trusted tokens) -> Cloudflare Browser Rendering REST API -> PDF.
+//
+// WHY THE REST API (not the puppeteer binding): Cloudflare Pages Functions CANNOT bind Browser Rendering —
+// the `browser` binding is Workers-only (Pages supports only a subset of bindings). These endpoints are Pages
+// Functions, so we call the Browser Rendering REST /pdf endpoint with an API token instead. Same product, no
+// binding required, and the lockdown is cleaner.
 //
 // STATELESS: no persistence, no audit row (Aegis gate 6 — audit enters in Phase D with persistence).
 // Actor is the verified JWT member; never caller-supplied.
 //
-// BROWSER-RENDERING LOCKDOWN (Aegis gate 3):
-//   - page.setContent (no URL navigation), JavaScript DISABLED.
-//   - request interception ABORTS every request that isn't a data: URI — the HTML references nothing external
-//     (logo inlined as data:, system fonts, no scripts), so nothing external can load; interception is the
-//     defense-in-depth proof. Aborted-external count is returned in a debug header for the live smoke.
+// BROWSER LOCKDOWN (Aegis gate 3): `allowRequestPattern: ["^data:"]` — the ONLY requests permitted during
+// render are inline data: URIs (the base64 logo). Every external request (http/https/file/font/etc.) is
+// structurally blocked. The HTML itself references nothing external (logo inlined, system fonts, no scripts,
+// markdown rendered with html:false), so there is no external surface to begin with; the allow-list is the
+// belt-and-suspenders proof.
 //
-// INFRA PREREQ: requires the Browser Rendering binding `BROWSER` on the CF Pages project
-// (Dashboard → Settings → Functions → Bindings → Browser Rendering, name "BROWSER"; Workers Paid).
-// Until that binding exists, the endpoint returns 503 (cleanly), so deploy is safe before it's enabled.
+// INFRA PREREQ (server-side env on the CF Pages project, NOT VITE_):
+//   - CF_ACCOUNT_ID            — Cloudflare account id.
+//   - CF_BROWSER_RENDERING_TOKEN — API token with the "Browser Rendering: Edit" permission.
+// Until both are set the endpoint returns 503 cleanly (deploy-safe before they exist).
 
-import puppeteer from '@cloudflare/puppeteer'
 import { requireMember, parseStrict, json } from '../_lib/member-auth'
 import { renderDocumentHtml } from '../_lib/render-core'
 import { docTypeById } from '../_lib/brand-template'
@@ -61,38 +66,38 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   // ---- render to branded HTML (safe: html:false + trusted tokens) ----
   const html = renderDocumentHtml({ title, markdown: body.markdown })
 
-  // ---- Browser Rendering → PDF (locked down) ----
-  const BROWSER = (context.env || {}).BROWSER
-  if (!BROWSER) return json({ error: 'render backend unavailable (BROWSER binding not configured)' }, 503)
+  // ---- Browser Rendering REST API → PDF (locked down) ----
+  const env = context.env || {}
+  const ACCOUNT = env.CF_ACCOUNT_ID
+  const TOKEN = env.CF_BROWSER_RENDERING_TOKEN
+  if (!ACCOUNT || !TOKEN) return json({ error: 'render backend unavailable (CF Browser Rendering not configured)' }, 503)
 
-  let browser: any
-  let blockedExternal = 0
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 45000)
   try {
-    browser = await puppeteer.launch(BROWSER)
-    const page = await browser.newPage()
-    await page.setJavaScriptEnabled(false)
-    await page.setRequestInterception(true)
-    page.on('request', (req: any) => {
-      const url = String(req.url() || '')
-      // allow only inline data: URIs (the logo); abort anything external (http/https/file/etc.)
-      if (url.startsWith('data:')) { req.continue(); return }
-      blockedExternal++
-      req.abort()
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/browser-rendering/pdf`, {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      // allow ONLY inline data: requests (the logo); everything external is blocked → no remote load possible.
+      body: JSON.stringify({ html, allowRequestPattern: ['^data:'] }),
+      signal: ctrl.signal,
     })
-    await page.setContent(html, { waitUntil: 'load' })
-    const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true })
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 200)
+      return json({ error: 'render failed', status: res.status, detail }, 502)
+    }
+    const pdf = await res.arrayBuffer()
     return new Response(pdf, {
       status: 200,
       headers: {
         'content-type': 'application/pdf',
         'content-disposition': `inline; filename="${spec.id}.pdf"`,
-        'x-render-blocked-external': String(blockedExternal),
       },
     })
   } catch (e: any) {
     return json({ error: 'render failed', detail: String(e?.message ?? e).slice(0, 200) }, 502)
   } finally {
-    if (browser) { try { await browser.close() } catch { /* ignore */ } }
+    clearTimeout(timer)
   }
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)
