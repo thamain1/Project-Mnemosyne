@@ -52,12 +52,19 @@ async function setup() {
 }
 async function cleanup() {
   for (const id of createdDocIds) {
-    await admin.storage.from(BUCKET).remove([`rendered/${id}/v1.pdf`]).catch(() => {})
-    await admin.from('document_versions').delete().eq('document_id', id).catch(() => {})
-    await admin.from('documents').delete().eq('id', id).catch(() => {})
+    try { await admin.storage.from(BUCKET).remove([`rendered/${id}/v1.pdf`]) } catch { /* best-effort */ }
+    try { await admin.from('document_versions').delete().eq('document_id', id) } catch { /* best-effort */ }
+    try { await admin.from('documents').delete().eq('id', id) } catch { /* best-effort */ }
   }
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
-  if (nonmemberUid) await admin.auth.admin.deleteUser(nonmemberUid)
+  // A member that performed an AUDITED write (render_save / download) can't be deleted — activity_log.actor_id
+  // is an append-only FK (NO ACTION), and we must NOT delete audit history. Try delete (works for members with
+  // no audit, e.g. the non-member); if blocked, DEACTIVATE so the tombstone can never act again.
+  for (const uid of [nonmemberUid, memberUid]) {
+    if (!uid) continue
+    try { await admin.from('team_members').delete().eq('id', uid) } catch { /* may be audit-pinned */ }
+    const { error } = await admin.auth.admin.deleteUser(uid)
+    if (error) { try { await admin.from('team_members').update({ active: false }).eq('id', uid) } catch { /* leave deactivated tombstone */ } }
+  }
 }
 
 async function main() {

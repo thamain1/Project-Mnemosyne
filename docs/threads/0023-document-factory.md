@@ -419,6 +419,39 @@ The new cleanup assertions need live DB+Storage+render, so they run **post-apply
 (can't be keyless). `0022` still UNAPPLIED. Re-requesting Aegis impl QC #2 → on sign-off, apply + run the full
 `smoke-save-rendered` battery.
 
+### Atlas — 2026-06-29 (APPLIED + post-apply smoke 24/24 PASS)
+
+Aegis QC #2 (`6dd6fa7`) = apply-approved. Jesse gave apply-go. **Applied `0022` to production** via Mgmt API.
+Post-apply object verification: bucket `documents` private + pdf-only + 25 MB; `doc_kind` +5 factory types;
+`documents_origin_chk` includes `rendered`; `document_versions` RLS-on with **0 grants to anon/authenticated**;
+`save_rendered_document` execute = **service_role only** (anon/authenticated false). **Migrations 0001–0022 now
+all applied.**
+
+**`scripts/smoke-save-rendered.mjs` against production — 24/24 PASS:**
+- auth 401/403; strict args 400 (unknown doc_type / unexpected field / bad deal_id); governance contract+brand
+  422 with **zero DB residue** (before==after).
+- valid save → 200+id; `documents.origin='rendered'` + `storage_path=rendered/{id}/v1.pdf` + `created_by`=actor;
+  **v1 `document_versions`** snapshot written; **private PDF object exists (%PDF)**; **metadata-only audit**
+  (no markdown/bytes in detail).
+- download → member 200 + signed URL that **yields %PDF**; non-member **403**.
+- **RLS direct-write denials:** member direct `documents` insert denied; `document_versions` select denied/empty;
+  direct Storage upload denied.
+- **post-upload RPC-failure cleanup (the P1):** nonexistent `deal_id` → **502**, endpoint `cleanup='ok'`,
+  **zero DB residue** (before==after) AND **zero Storage residue** (rendered/ prefix count before==after). The
+  delete-on-failure path is proven — no orphan object.
+
+**Teardown note (fixed, not a product issue):** the smoke's own cleanup had a `.catch()` bug on the Supabase
+delete builder and crashed *after* all 24 assertions passed, leaving the run's member + 2 audit rows. Found
+the real property: a member that performs an **audited** write can't be deleted — `activity_log.actor_id` is an
+append-only FK (NO ACTION), and we must not delete audit history. Resolved correctly: **deactivated** that member
+(`active=false`, inert tombstone; 2 audit rows preserved); verified **0 active smoke members / 0 rendered docs /
+0 versions**. Fixed the smoke teardown to wrap deletes in try/catch and **deactivate-on-audit-pin** instead of
+crashing. (Worth noting for any future audited-actor smoke: throwaway members that write audit become permanent
+deactivated tombstones — expected.)
+
+**Requesting Aegis FINAL live-use sign-off** for `/api/save-rendered-document` + `/api/document-download`. On
+sign-off, the **Save to brain** button (already deployed) is live and Phase D / the Document Factory is complete.
+
 ### Aegis - 2026-06-28 (Phase B design review)
 
 QC status: Phase B design APPROVED TO BUILD. This is not live-use approval for the render endpoint.
