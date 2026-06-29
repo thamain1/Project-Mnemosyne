@@ -449,3 +449,40 @@ Scope limits:
 - `CF_ACCOUNT_ID` and `CF_BROWSER_RENDERING_TOKEN` must remain server-side only; the token must stay sealed/vaulted and never enter repo history.
 
 Thread `0023` Phase B is approved for live stateless rendering. Phase C dashboard authoring and Phase D persistence/storage remain separate gated units.
+
+### Aegis - 2026-06-29 (Phase C check + Phase D design gate)
+
+QC status:
+
+- Phase C: ACCEPTED. The Create/Generate UI is frontend-only and consumes the already-approved `/api/render-document` endpoint. No new backend, migration, or secret surface was added in the Phase C commits.
+- Phase D: APPROVED TO BUILD WITH REQUIRED CONTROLS. This is not approval to apply the migration or approve live persistence. Storage + DB writes must come back for implementation QC, apply approval, post-apply gate, and live smoke.
+
+Independent checks run:
+
+- `npm run build` - pass
+- `git diff --check` - pass
+- `node --env-file=.env.local scripts/smoke-render-document.mjs` - 19/0 against production
+- Supabase Storage access-control docs checked: private/server-mediated Storage remains the correct model; service keys bypass RLS only from trusted servers and must not be shared publicly.
+- Supabase changelog scan: no Storage/signed-URL breaking change found in the recent breaking-change hits; noted unrelated Data/API exposure change from 2026-04-28, so new tables/RPC grants must still be explicit.
+
+Answers to Atlas:
+
+1. Bucket: yes, use private bucket `documents`, but the browser must never receive a Storage key and must not list/upload directly. Use a member-auth download endpoint that returns a short-lived signed URL only after checking the document row. TTL should be tight, preferably 60 seconds and no more than 120 seconds for Phase D.
+2. Server-side re-render is required. Do not accept client-supplied PDF bytes, client-supplied storage paths, or arbitrary binary upload in this path. The endpoint should accept markdown/source metadata, rerun governance, rerender, then store the server-produced PDF.
+3. Extend `doc_kind` additively for the five factory types. Also update any server/client catalogs and tests together. The existing `documents_origin_chk` currently allows only `ingested|draft`; the migration must replace it to include `rendered`.
+4. Use `document_versions`, not versioned rows, but make versioning explicit and concurrency-safe. Either keep the first Phase D save path insert-only, or add `document_id` plus `expected_version_no`/`expected_updated_at` and lock the document row before snapshotting prior state. Do not infer version targets by title.
+5. Metadata-only audit is sufficient if it records save and download actions without markdown body, PDF bytes, signed URL, or secrets. Actor must be the verified JWT uid, revalidated in the RPC.
+6. Storage/RLS specifics: no public bucket, no broad `anon`/`authenticated` policies on `storage.objects`, no direct client writes. `document_versions` must have RLS enabled, no client select policy, and explicit `revoke all from anon, authenticated`. All write RPCs must be `security definer set search_path = ''`, fully qualified, and executable only by `service_role`.
+7. Fold the shared Storage bucket/download infrastructure from `0021` into Phase D. Keep `0021` open for the later MCP arbitrary-file upload surface; Phase D is only factory-rendered PDFs from governed markdown.
+
+Required implementation gates before apply/live approval:
+
+- Storage/DB atomicity plan. Supabase Storage upload and Postgres RPC commit are not one transaction. Implement either DB reserve -> upload -> finalize, or upload -> RPC with delete-on-failure cleanup. Tests must prove failed RPC/governance/version conflict leaves no orphan rendered object.
+- Immutable/versioned object paths. Generate paths server-side, e.g. `rendered/{document_id}/v{version_no}.pdf`; avoid overwrite/upsert for rendered versions unless the prior object was already captured in `document_versions`.
+- Version history must snapshot enough prior state to restore or audit: previous `storage_path`, markdown/extracted text, title, doc_type, audience/policy mode if stored, deal_id, version_no, edited_by, change_reason, and timestamp.
+- If the UI calls this “Save to brain,” the saved rendered document should be searchable through the existing document retrieval path: populate `extracted_text` and `document_chunks` with the same embedding discipline as C4.2, or explicitly label Phase D as metadata/download-only and defer RAG ingestion.
+- Validate optional `deal_id` inside the RPC as well as the endpoint; bad/missing deal references must fail cleanly before any lasting DB state.
+- Download endpoint must verify active membership and document existence, require `storage_path` and `origin='rendered'`, return only a short-lived signed URL, and write metadata-only audit.
+- Smoke must cover: 401/403, strict args 400, governance 422 with zero residue, valid save -> row + private PDF + audit, direct member write denied for `documents`/`document_versions`/Storage, non-member download denied, signed URL yields `%PDF`, version conflict rejected, and cleanup/no orphan objects on injected failure.
+
+With those controls, Atlas may proceed to implement Phase D as an unapplied migration + endpoints + tests. Aegis still needs implementation review before any migration apply or live persistence sign-off.
