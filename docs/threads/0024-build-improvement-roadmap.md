@@ -218,10 +218,24 @@ incident.
   `/api/render-document` 500 in prod until `0023` is applied. The migration SQL itself **QC-PASSES**
   (atomic FOR UPDATE token bucket; correct refill math incl. clock-reset-on-reject; definer +
   empty search_path; service-role-only execute; explicit revoke per this project's auto-grant
-  gotcha). **Remedy = apply `0023` immediately (Jesse apply-go needed).** Standing rule going
-  forward: code that HARD-depends on an unapplied migration must not be pushed to an auto-deploy
-  branch — either apply first (after QC) or make the dependency soft (try/catch fail-open with a
-  logged warning) until apply.
+  gotcha). Standing rule going forward: code that HARD-depends on an unapplied migration must not be
+  pushed to an auto-deploy branch — either apply first (after QC) or make the dependency soft
+  (try/catch fail-open with a logged warning) until apply.
+  **→ ✅ RESOLVED 2026-07-01: Jesse gave apply-go; Atlas applied `0023` via Management API.
+  Post-apply gate PASSED** (fn exists; RLS on; zero anon/authenticated table grants;
+  anon/authenticated cannot execute, service_role can; semantics limit=2 → take,take,reject; test
+  rows cleaned). **Recovery proven live:** `/api/log-update` smoke **15/15** (incl. 201 write through
+  the rate path) + `/api/render-document` valid render → **200 application/pdf, 17KB, %PDF magic**
+  with a fresh member. recall/generate-contract share the identical helper wiring — recovered by
+  construction.
+- **🟠 P2-ORDER — rate check runs BEFORE argument validation** (surfaced by the render smoke: its ~11
+  member-authenticated negative cases drained the 10-token render bucket, so the valid case 429'd;
+  13/19 vs the historical 19/19). Malformed requests shouldn't burn a member's budget, and the smoke
+  batteries break as written. Fix (Sonnet): in all four wired endpoints, move `checkRateLimit` to run
+  AFTER cheap validation (`parseStrict` / governance scan) and immediately BEFORE the expensive work
+  (embed / LLM / render / RPC write). Spend stays fully capped; negatives stop consuming tokens; the
+  existing smokes pass again unmodified. Re-run `smoke-render-document.mjs` (expect 19/19) as the
+  acceptance check.
 - **🟠 P1 — Documents deal-grouping regression.** All 13 existing documents have `deal_id = NULL`
   (verified in prod), so the new FK-based grouping renders one big "Unassigned" bucket where the old
   title heuristic showed per-deal groups. Fix (Sonnet): fall back to the title-prefix heuristic when
