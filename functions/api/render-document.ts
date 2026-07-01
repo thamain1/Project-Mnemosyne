@@ -28,6 +28,7 @@ import { requireMember, parseStrict, json } from '../_lib/member-auth'
 import { docTypeById } from '../_lib/brand-template'
 import { scanForRender, renderScannedToPdf } from '../_lib/render-pdf'
 import { checkRateLimit } from '../_lib/rate-limit'
+import { logUsage } from '../_lib/usage'
 
 const MAX_TITLE_LEN = 300
 const MAX_MARKDOWN_LEN = 200_000   // generous outer bound for a long document
@@ -72,6 +73,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   // ---- expensive: Cloudflare Browser Rendering lockdown ----
   const r = await renderScannedToPdf(context.env || {}, { title, markdown: body.markdown, policy: scan.policy })
   if (!r.ok) return json(r.body, r.status)
+  await logUsage(auth.admin, {
+    actorId: auth.uid, tool: 'api/render-document', model: null,
+    bytesIn: body.markdown.length, bytesOut: r.pdf.byteLength,
+  })
   return new Response(r.pdf, {
     status: 200,
     headers: {

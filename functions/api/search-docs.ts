@@ -10,6 +10,7 @@
 // /api/recall); SUPABASE_URL/ANON fall back to VITE_*. Deferred (pre-broad-rollout): per-user rate limiting.
 
 import { createClient } from '@supabase/supabase-js'
+import { logUsage } from '../_lib/usage'
 
 const MODEL = 'gemini-embedding-001'
 const DIMS = 768
@@ -91,6 +92,11 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const { data, error } = await admin.rpc('search_docs', { query_embedding: vec, match_count: k })
   if (error) return json({ error: 'search failed' }, 502)
 
-  return json({ results: data ?? [] })
+  const results = data ?? []
+  await logUsage(admin, {
+    actorId: uid, tool: 'api/search-docs', model: MODEL,
+    bytesIn: query.length, bytesOut: JSON.stringify(results).length,
+  })
+  return json({ results })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

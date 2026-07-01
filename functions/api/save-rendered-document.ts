@@ -13,6 +13,7 @@
 import { requireMember, parseStrict, json, isUuid } from '../_lib/member-auth'
 import { docTypeById } from '../_lib/brand-template'
 import { renderToPdf } from '../_lib/render-pdf'
+import { logUsage } from '../_lib/usage'
 
 const MAX_TITLE_LEN = 300
 const MAX_MARKDOWN_LEN = 200_000
@@ -98,6 +99,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     } catch (e: any) { cleanup = `failed(${String(e?.message ?? e).slice(0, 60)})` }
     return json({ error: 'save failed', detail: String(error.message).slice(0, 200), cleanup, orphan: cleanup === 'ok' ? null : path }, 502)
   }
+  await logUsage(admin, {
+    actorId: auth.uid, tool: 'api/save-rendered-document', model: null,
+    bytesIn: body.markdown.length, bytesOut: r.pdf.byteLength,
+  })
   return json({ id: data, doc_type: spec.id, title, storage_path: path }, 200)
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

@@ -12,6 +12,7 @@
 // metadata only (actor, doc ids, status) — NEVER the question text or answer.
 
 import { createClient } from '@supabase/supabase-js'
+import { logUsage } from '../_lib/usage'
 
 const EMBED_MODEL = 'gemini-embedding-001'
 const GEN_MODEL = 'gemini-2.5-flash'
@@ -42,7 +43,7 @@ async function embedQuery(text: string, apiKey: string): Promise<string> {
   } finally { clearTimeout(timer) }
 }
 
-async function generate(question: string, context: string, apiKey: string): Promise<string> {
+async function generate(question: string, context: string, apiKey: string): Promise<{ text: string; inputTokens: number | null; outputTokens: number | null }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEN_MODEL}:generateContent`
   const system =
     'You answer questions about 4ward Motion Solutions contracts (MOUs, SOWs, proposals, invoices). ' +
@@ -66,7 +67,8 @@ async function generate(question: string, context: string, apiKey: string): Prom
     const data = await res.json()
     const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('').trim()
     if (!text) throw new Error('empty generation')
-    return text
+    const usage = data?.usageMetadata ?? {}
+    return { text, inputTokens: usage.promptTokenCount ?? null, outputTokens: usage.candidatesTokenCount ?? null }
   } finally { clearTimeout(timer) }
 }
 
@@ -125,9 +127,14 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   }
 
   // ---- generate grounded answer ----
-  let answer: string
-  try { answer = await generate(question, ctx, GEMINI) } catch { return json({ error: 'generation failed' }, 502) }
+  let answer: string, inputTokens: number | null, outputTokens: number | null
+  try { ({ text: answer, inputTokens, outputTokens } = await generate(question, ctx, GEMINI)) }
+  catch { return json({ error: 'generation failed' }, 502) }
 
+  await logUsage(admin, {
+    actorId: uid, tool: 'api/ask-docs', model: GEN_MODEL,
+    inputTokens, outputTokens, bytesIn: question.length, bytesOut: answer.length,
+  })
   return json({ answer, sources })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

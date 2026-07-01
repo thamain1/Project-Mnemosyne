@@ -10,6 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { scanContract } from '../_lib/contract-scan'
+import { logUsage } from '../_lib/usage'
 
 const MODEL = 'gemini-embedding-001'
 const DIMS = 768
@@ -113,6 +114,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     return json({ error: 'save failed' }, 502)
   }
 
+  await logUsage(admin, {
+    actorId: uid, tool: 'api/save-document', model: MODEL,
+    bytesIn: markdown.length, bytesOut: JSON.stringify({ id: docId }).length,
+  })
   return json({ id: docId, doc_type: docType, title, chunks: chunks.length }, 201)
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

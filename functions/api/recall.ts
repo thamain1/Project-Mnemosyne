@@ -19,6 +19,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit } from '../_lib/rate-limit'
+import { logUsage } from '../_lib/usage'
 
 const RATE_LIMIT = 30       // recalls per actor
 const RATE_WINDOW_S = 60    // per this many seconds — spends a Gemini embed call each time
@@ -114,6 +115,11 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const { data, error } = await admin.rpc('recall_memory', { query_embedding: vec, match_count: k })
   if (error) return json({ error: 'recall failed' }, 502)
 
-  return json({ results: data ?? [] })
+  const results = data ?? []
+  await logUsage(admin, {
+    actorId: uid, tool: 'api/recall', model: MODEL,
+    bytesIn: query.length, bytesOut: JSON.stringify(results).length,
+  })
+  return json({ results })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

@@ -19,6 +19,7 @@ import { runLogUpdate, MAX_ACTION_LEN } from './lib/log-core.mjs'
 import { runGetSecret } from './lib/getsecret-core.mjs'
 import { runFetch } from './lib/fetch-core.mjs'
 import { runUpdate, MAX_CHANGE_REASON_LEN } from './lib/update-core.mjs'
+import { logMcpUsage, TELEMETRY_ON } from './lib/usage-core.mjs'
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
@@ -153,10 +154,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [RECALL_T
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const handler = HANDLERS[req.params.name]
   if (!handler) return { isError: true, content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }] }
+  const args = req.params.arguments ?? {}
+  const bytesIn = Buffer.byteLength(JSON.stringify(args), 'utf8')
   try {
-    const text = await handler(req.params.arguments ?? {})
+    const text = await handler(args)
+    if (TELEMETRY_ON) await logMcpUsage(rpc, { actorId: OPERATOR_ID, tool: req.params.name, bytesIn, bytesOut: Buffer.byteLength(text, 'utf8'), ok: true })
     return { content: [{ type: 'text', text }] }
   } catch (e) {
+    if (TELEMETRY_ON) await logMcpUsage(rpc, { actorId: OPERATOR_ID, tool: req.params.name, bytesIn, bytesOut: 0, ok: false })
     return { isError: true, content: [{ type: 'text', text: `${req.params.name} failed: ${e.message}` }] }
   }
 })

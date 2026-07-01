@@ -1,11 +1,48 @@
 # 0025 — P5-TELEMETRY: usage + token telemetry (design)
 
 - **Opened:** 2026-07-01 (Atlas)
-- **Status:** DESIGN — for Aegis review, then Sonnet 5 build. Migration held UNAPPLIED until apply-go.
+- **Status:** BUILT (2026-07-01, Sonnet 5) — Aegis cleared the design; migration `0024` written and
+  HELD UNAPPLIED pending apply-go. Code committed locally, NOT pushed (standing rule: push only when
+  asked). `npm run build` green; keyless MCP unit tests pass (`mcp/test-usage.mjs`, 5/5); live endpoint
+  smoke (`scripts/smoke-usage-telemetry.mjs`) written but NOT yet run against prod — it needs migration
+  `0024` applied first (the RPC/table it asserts against don't exist until then).
 - **Unit:** P5-TELEMETRY from thread `0024` Pillar 5. Sequence position: step 2 (after the hygiene
   sprint, BEFORE any optimization it is meant to judge).
 - **Working model:** Atlas plans (this doc) → Aegis QC → Sonnet 5 implements → gate → smoke → live.
 - **Migration number:** `0024_usage_telemetry.sql` (0023 = rate limiting).
+
+## Build notes (Sonnet 5, 2026-07-01)
+
+- **Schema/RPC:** `supabase/migrations/0024_usage_telemetry.sql` — `usage_events` table + `log_usage()`
+  RPC, matching 0023's posture exactly (RLS on, explicit revoke from anon/authenticated, member
+  SELECT-only via `is_team_member()`, `log_usage` granted to `service_role` only).
+- **Shared helpers:** `functions/_lib/usage.ts` (`logUsage`, CF endpoints) and `mcp/lib/usage-core.mjs`
+  (`logMcpUsage` + `TELEMETRY_ON` env gate, MCP server). Both wrap the RPC call in try/catch with no
+  rethrow — a telemetry failure can never fail the parent request (this is the structural proof for
+  gate criterion 4, verified by code inspection + `mcp/test-usage.mjs`, not live fault injection).
+- **Instrumented (7 CF endpoints):** `recall`, `search-docs`, `ask-docs`, `generate-contract`,
+  `render-document`, `save-document`, `save-rendered-document`. Each fires one best-effort `log_usage`
+  after its work completes.
+- **Instrumented (MCP):** all 6 tool handlers wrapped at the `CallToolRequestSchema` dispatch level in
+  `mcp/server.mjs` (not inside each core, to keep cores pure/testable) — records `bytes_in`/`bytes_out`
+  (args/result JSON length) and success/failure. Env-gated `MNEMOSYNE_TELEMETRY` (default on).
+- **Dashboard:** small "Usage — last 7 days" card added to `src/pages/Activity.tsx` (not a new tab) —
+  per-tool totals table (calls, tokens, bytes) + top-5 actors table. Client-side aggregation of one
+  capped SELECT (limit 5000) against `usage_events`, readable under the member SELECT policy. No charts.
+- **Spec deviation (flagged, not silently resolved):** the design doc's acceptance criterion 2 says a
+  `/api/recall` call should produce "provider token counts populated" — but `recall`/`search-docs` only
+  call Gemini's `embedContent`, which does not expose `usageMetadata` (unlike `generateContent`). Token
+  counts for embed-only calls are honestly `null`; bytes are the proxy metric, per the design's own
+  "Honest scope" section. The smoke script instead asserts real provider tokens on
+  `/api/generate-contract` (which does call `generateContent`) and asserts bytes-only for recall/search.
+- **MCP live-stdio smoke (gate criterion 5) NOT built:** no existing MCP test in this repo spawns the
+  real stdio server (`mcp/test-*.mjs` are all keyless, mocked-rpc unit tests) — there's no established
+  pattern to extend. Built the keyless equivalent instead (`mcp/test-usage.mjs`, 5/5 passing) covering
+  `logMcpUsage`'s RPC shape, actor-null coercion, and best-effort swallow-on-error. The live DB write
+  path itself (`log_usage` grants) IS exercised live by `smoke-usage-telemetry.mjs` criterion 1c.
+- **Next steps (need explicit go):** apply migration `0024` (Supabase Management API) → run
+  `scripts/smoke-usage-telemetry.mjs` against prod → if 0/0, push `main` (CF auto-deploys) → re-run the
+  smoke once live to confirm the deployed code path.
 
 ## Why (one paragraph)
 
