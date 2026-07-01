@@ -14,9 +14,13 @@
 // Runtime: Cloudflare Workers. Server-side env (context.env, NOT VITE_): SUPABASE_SERVICE_ROLE_KEY
 // (already set for /api/recall etc.). No Gemini key needed (no embed/generation).
 //
-// Deferred (pre-broad-rollout, per Unit-B pattern): per-user/IP rate limiting on writes.
+// Rate limiting: per-actor token bucket via rate_take (migration 0023, thread 0024).
 
 import { createClient } from '@supabase/supabase-js'
+import { checkRateLimit } from '../_lib/rate-limit'
+
+const RATE_LIMIT = 60       // log_update writes per actor
+const RATE_WINDOW_S = 60    // per this many seconds
 
 const MAX_NOTE_LEN = 1000          // matches log_activity's per-string-value cap
 const MAX_ACTION_LEN = 200         // matches log_activity's action cap
@@ -90,6 +94,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const { data: member, error: mErr } = await admin
     .from('team_members').select('id').eq('id', uid).eq('active', true).maybeSingle()
   if (mErr || !member) return json({ error: 'forbidden' }, 403)
+
+  const rate = await checkRateLimit(admin, uid, 'log_update', RATE_LIMIT, RATE_WINDOW_S)
+  if (!rate.ok) return rate.res
 
   // ---- write: log_activity with actor = AUTHENTICATED uid (not from the body) ----
   // detail is a flat object; the RPC bounds size/keys/values and secret-scans. The note text is allowed

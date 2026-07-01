@@ -27,14 +27,20 @@
 import { requireMember, parseStrict, json } from '../_lib/member-auth'
 import { docTypeById } from '../_lib/brand-template'
 import { renderToPdf } from '../_lib/render-pdf'
+import { checkRateLimit } from '../_lib/rate-limit'
 
 const MAX_TITLE_LEN = 300
 const MAX_MARKDOWN_LEN = 200_000   // generous outer bound for a long document
+const RATE_LIMIT = 10       // renders per actor — each call spends a Browser Rendering token
+const RATE_WINDOW_S = 60    // per this many seconds
 
 export const onRequestPost = async (context: any): Promise<Response> => {
   // ---- auth (fail closed) ----
   const auth = await requireMember(context)
   if (!auth.ok) return auth.res
+
+  const rate = await checkRateLimit(auth.admin, auth.uid, 'render_document', RATE_LIMIT, RATE_WINDOW_S)
+  if (!rate.ok) return rate.res
 
   // ---- strict args ----
   const parsed = await parseStrict(context, ['doc_type', 'title', 'markdown', 'audience'])

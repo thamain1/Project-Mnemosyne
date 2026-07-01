@@ -11,12 +11,16 @@
 // for review — never auto-final, never auto-sent. Fails CLOSED (JWT -> active member before any work).
 //
 // Server-side env (context.env, NOT VITE_): SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY (already set).
-// Deferred (pre-broad-rollout): per-user rate limiting; persistence + audit of generated drafts (C4.2).
+// Rate limiting: per-actor token bucket via rate_take (migration 0023, thread 0024).
+// Deferred (pre-broad-rollout): persistence + audit of generated drafts (C4.2).
 
 import { createClient } from '@supabase/supabase-js'
 import { DOC_TYPES, SLOTS, TITLES, skeletonFor, type DocType, type SlotSpec } from '../_lib/contract-templates'
 import { scanContract } from '../_lib/contract-scan'
+import { checkRateLimit } from '../_lib/rate-limit'
 
+const RATE_LIMIT = 10       // generations per actor — each call spends an LLM generation + embed
+const RATE_WINDOW_S = 60    // per this many seconds
 const EMBED_MODEL = 'gemini-embedding-001'
 const GEN_MODEL = 'gemini-2.5-flash'
 const DIMS = 768
@@ -141,6 +145,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const { data: member, error: mErr } = await admin
     .from('team_members').select('id').eq('id', uid).eq('active', true).maybeSingle()
   if (mErr || !member) return json({ error: 'forbidden' }, 403)
+
+  const rate = await checkRateLimit(admin, uid, 'generate_contract', RATE_LIMIT, RATE_WINDOW_S)
+  if (!rate.ok) return rate.res
 
   // ---- optional grounding: closest SAME-TYPE exemplar (style only) ----
   const sources: any[] = []

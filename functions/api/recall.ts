@@ -10,13 +10,18 @@
 //   SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY  (must add in CF Pages env)
 //   SUPABASE_URL / SUPABASE_ANON_KEY            (fall back to the existing VITE_* if not separately set)
 //
-// Aegis QC (thread 0012) deferred items (NOT yet implemented — gated to before broad rollout):
-//   - per-user/IP RATE LIMITING (this endpoint spends Gemini tokens) — required before broad team rollout.
+// Rate limiting: per-actor token bucket via rate_take (migration 0023, thread 0024) — this endpoint
+// spends a Gemini embed call per request.
+//
+// Aegis QC (thread 0012) deferred item still open:
 //   - if recall AUDIT is ever added: log only safe metadata (actor, k, result count, timing) — NEVER the
 //     query text.
 
 import { createClient } from '@supabase/supabase-js'
+import { checkRateLimit } from '../_lib/rate-limit'
 
+const RATE_LIMIT = 30       // recalls per actor
+const RATE_WINDOW_S = 60    // per this many seconds — spends a Gemini embed call each time
 const MODEL = 'gemini-embedding-001'
 const DIMS = 768
 const MAX_K = 50
@@ -98,6 +103,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     .eq('active', true)
     .maybeSingle()
   if (mErr || !member) return json({ error: 'forbidden' }, 403)
+
+  const rate = await checkRateLimit(admin, uid, 'recall', RATE_LIMIT, RATE_WINDOW_S)
+  if (!rate.ok) return rate.res
 
   // ---- embed + recall ----
   let vec: string

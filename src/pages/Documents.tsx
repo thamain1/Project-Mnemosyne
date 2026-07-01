@@ -9,6 +9,8 @@ type Doc = {
   project_id: string | null
   created_at: string
   origin?: string | null
+  deal_id?: string | null
+  deals?: { title: string } | null
 }
 type Hit = Doc & { similarity: number; matched_via?: string }
 
@@ -20,8 +22,8 @@ const TYPE_COLORS: Record<string, string> = {
   other: 'bg-slate-700 text-slate-300',
 }
 const GRID = 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
-// deal = the leading "<Deal> — …" segment of the title (set by ingest-contracts)
-const dealOf = (title: string) => (title.split(' — ')[0] || 'Other').trim()
+// deal = the linked deals.title via documents.deal_id FK (0015_crm_writes_and_linkage.sql)
+const dealOf = (d: Doc) => d.deals?.title?.trim() || 'Unassigned'
 
 export default function Documents() {
   const { session } = useAuth()
@@ -55,11 +57,11 @@ export default function Documents() {
       let data: any[] | null
       let error: { message: string } | null
       const withOrigin = await supabase
-        .from('documents').select('id, title, doc_type, project_id, created_at, origin')
+        .from('documents').select('id, title, doc_type, project_id, created_at, origin, deal_id, deals(title)')
         .order('created_at', { ascending: false })
       if (withOrigin.error) {
         const res = await supabase
-          .from('documents').select('id, title, doc_type, project_id, created_at')
+          .from('documents').select('id, title, doc_type, project_id, created_at, deal_id, deals(title)')
           .order('created_at', { ascending: false })
         data = res.data; error = res.error
       } else {
@@ -80,7 +82,7 @@ export default function Documents() {
   // group browse by deal
   const groups = useMemo(() => {
     const m = new Map<string, Doc[]>()
-    for (const d of browse) { const g = dealOf(d.title); if (!m.has(g)) m.set(g, []); m.get(g)!.push(d) }
+    for (const d of browse) { const g = dealOf(d); if (!m.has(g)) m.set(g, []); m.get(g)!.push(d) }
     return [...m.entries()].map(([deal, items]) => ({ deal, items })).sort((a, b) => b.items.length - a.items.length || a.deal.localeCompare(b.deal))
   }, [browse])
 

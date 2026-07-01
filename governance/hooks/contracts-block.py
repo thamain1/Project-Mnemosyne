@@ -8,8 +8,11 @@ commit contract / legal / invoice files which must never enter a git repo (they 
 the out-of-repo C:\\Dev\\<Project>\\contracts\\ folder, or in Mnemosyne per §14).
 
 Two detection methods:
-  A. Scan the raw command text for forbidden path patterns (catches explicit
-     `git add docs/MOU.pdf`, `git add contracts/`).
+  A. Scan the path ARGUMENTS of `git add` invocations in the command for forbidden
+     patterns (catches explicit `git add docs/MOU.pdf`, `git add contracts/`). Scoped
+     to `git add` segments only — never the free text of a `git commit -m "..."`
+     message, so a commit message that happens to mention "MOU" or "SOW" as a word
+     does not get false-blocked (P5-H1FIX, thread 0024).
   B. Best-effort: inspect already-staged files via `git diff --cached --name-only`
      (catches `git commit` after a broad `git add -A`). CWD inferred from a leading
      `cd <dir>` in the command, else the hook's own CWD. Fails open on any error.
@@ -52,18 +55,27 @@ def is_forbidden(path: str) -> bool:
     return False
 
 
-def find_hits_in_text(command: str):
-    """Method A: pull path-like tokens out of the command and test each."""
+def find_hits_in_git_add(command: str):
+    """Method A: pull path arguments out of `git add` segments only.
+
+    Never inspects `git commit` (or anything else) — a commit MESSAGE is free text,
+    not a path, and scanning it caused false positives on clean commits whose message
+    happened to contain a word like "MOU" or "SOW" (P5-H1FIX).
+    """
     hits = []
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        tokens = command.split()
-    for tok in tokens:
-        if tok.startswith("-"):
+    for segment in re.split(r"&&|\|\||;|\|", command):
+        m = re.match(r"\s*git\s+add\b(.*)", segment)
+        if not m:
             continue
-        if is_forbidden(tok):
-            hits.append(tok)
+        try:
+            tokens = shlex.split(m.group(1), posix=True)
+        except ValueError:
+            tokens = m.group(1).split()
+        for tok in tokens:
+            if tok.startswith("-"):
+                continue
+            if is_forbidden(tok):
+                hits.append(tok)
     return hits
 
 
@@ -106,7 +118,7 @@ def main():
     if not re.search(r"\bgit\s+(add|commit)\b", command):
         sys.exit(0)
 
-    hits = sorted(set(find_hits_in_text(command) + find_hits_in_staged(command)))
+    hits = sorted(set(find_hits_in_git_add(command) + find_hits_in_staged(command)))
     if not hits:
         sys.exit(0)
 
