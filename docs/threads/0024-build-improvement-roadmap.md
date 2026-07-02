@@ -257,4 +257,8 @@ incident.
   Atlas position stands: **rotate before any teammate/remote rollout** (update local MCP env + CF
   Pages env + redeploy when done). Parking it is acceptable while access stays single-operator.
 
-**Next unit design doc:** thread `0025` (P5-TELEMETRY) — written, awaiting Aegis review.
+**Next unit design doc:** thread `0025` (P5-TELEMETRY) — ✅ BUILT + CLOSED 2026-07-02 (7/7 endpoints,
+Aegis signed off; the generate-contract incident it surfaced is thread `0026`, RESOLVED same day).
+**Current unit:** thread `0027` (P1-HOSTED-MCP + P1-BRIEF, sequence step 3) — design WRITTEN
+2026-07-02, awaiting Aegis review; migration # `0026`; **service-role key rotation is a deploy gate
+inside that unit** (Aegis re-flagged at the 0025 signoff).
