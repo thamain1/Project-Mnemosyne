@@ -60,6 +60,7 @@ const FETCH_TOOL = {
     additionalProperties: false,
     properties: {
       name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'The entry slug (e.g. from a recall result, like "intellioptics-2-5"). Sloppy names are normalized.' },
+      max_chars: { type: 'integer', minimum: 1, maximum: 16000, description: 'Optional cap on the returned text length (redaction always runs first). Omit for the full body.' },
     },
     required: ['name'],
   },

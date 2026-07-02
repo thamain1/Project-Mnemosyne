@@ -1,6 +1,6 @@
 // Mnemosyne — keyless tests for the fetch read-body slice. Run: node test-fetch.mjs
 // No network, no DB, no keys: rpc is mocked. Mirrors test-recall.mjs / test-remember.mjs discipline.
-import { validateFetchArgs, formatEntry, runFetch, redactSecrets, REDACTION, MAX_NAME_LEN } from './lib/fetch-core.mjs'
+import { validateFetchArgs, formatEntry, runFetch, redactSecrets, truncateFormatted, REDACTION, MAX_NAME_LEN, MAX_CHARS_CAP } from './lib/fetch-core.mjs'
 
 let pass = 0, fail = 0
 function check(name, cond) { if (cond) { pass++; console.log(`  ok    ${name}`) } else { fail++; console.log(`  FAIL  ${name}`) } }
@@ -29,6 +29,16 @@ check('rejects name slugifying to empty', throwsSync(() => validateFetchArgs({ n
 check('rejects over-long name', throwsSync(() => validateFetchArgs({ name: 'a'.repeat(MAX_NAME_LEN + 1) }), 'exceeds'))
 check('exact slug is idempotent', validateFetchArgs({ name: 'intellioptics-2-5' }).name === 'intellioptics-2-5')
 check('sloppy name normalizes to slug', validateFetchArgs({ name: 'IntelliOptics 2.5' }).name === 'intellioptics-2-5')
+
+// ---- max_chars (thread 0027 P5-AGENT-DIET) ----
+check('max_chars omitted -> undefined (full body, local default)', validateFetchArgs({ name: 'x' }).max_chars === undefined)
+check('max_chars valid int accepted', validateFetchArgs({ name: 'x', max_chars: 500 }).max_chars === 500)
+check('max_chars at cap accepted', validateFetchArgs({ name: 'x', max_chars: MAX_CHARS_CAP }).max_chars === MAX_CHARS_CAP)
+check('max_chars over cap rejected', throwsSync(() => validateFetchArgs({ name: 'x', max_chars: MAX_CHARS_CAP + 1 }), 'max_chars'))
+check('max_chars zero rejected', throwsSync(() => validateFetchArgs({ name: 'x', max_chars: 0 }), 'max_chars'))
+check('max_chars negative rejected', throwsSync(() => validateFetchArgs({ name: 'x', max_chars: -1 }), 'max_chars'))
+check('max_chars non-integer rejected', throwsSync(() => validateFetchArgs({ name: 'x', max_chars: 1.5 }), 'max_chars'))
+check('max_chars non-number rejected', throwsSync(() => validateFetchArgs({ name: 'x', max_chars: '500' }), 'max_chars'))
 
 // ---- formatEntry ----
 {
@@ -64,6 +74,46 @@ check('sloppy name normalizes to slug', validateFetchArgs({ name: 'IntelliOptics
   const rpcDirty = async () => ({ data: [{ ...row, body: 'leak sbp_' + 'a'.repeat(40) }], error: null })
   const out = await runFetch({ name: 'x' }, { rpc: rpcDirty })
   check('runFetch redacts on egress', out.includes(REDACTION) && !out.includes('sbp_aaaa') && out.includes('REDACTED on read'))
+}
+
+// ---- truncateFormatted + redact-before-truncate ordering (thread 0027 build instruction #1) ----
+{
+  check('truncateFormatted no-op under cap', truncateFormatted('short', 100).truncated === false && truncateFormatted('short', 100).text === 'short')
+  check('truncateFormatted no-op when maxChars omitted', truncateFormatted('x'.repeat(50), undefined).truncated === false)
+  const long = truncateFormatted('x'.repeat(50), 40)
+  check('truncateFormatted cuts to <= maxChars', long.text.length <= 40)
+  check('truncateFormatted flags truncated', long.truncated === true)
+  check('truncateFormatted appends honest marker', long.text.includes('truncated at 40 chars'))
+  // pathological case: maxChars smaller than the marker text itself — the length invariant must still
+  // hold even though the marker text necessarily gets clipped too (nothing else can be done at maxChars=10)
+  const tiny = truncateFormatted('x'.repeat(50), 10)
+  check('truncateFormatted holds the length invariant even when maxChars < marker length', tiny.text.length <= 10 && tiny.truncated === true)
+
+  // the critical security property: wherever the truncation cut lands (including mid-secret, mid-
+  // banner, mid-header), the plaintext secret must NEVER appear, because runFetch redacts the FULL
+  // body first and truncates the already-safe string second — a truncate-first ordering could cut a
+  // secret in half and defeat the pattern match entirely. `\b` requires a non-word char before "sbp_",
+  // hence the leading space. Full formatted+redacted length here is 388 chars, REDACTION span [350,367).
+  const secretBody = 'x'.repeat(20) + ' sbp_' + 'a'.repeat(40) + ' ' + 'y'.repeat(200)
+  const rpcSecretAtCut = async () => ({ data: [{ ...row, body: secretBody }], error: null })
+  let leaked = false
+  for (const mc of [10, 60, 140, 200, 300, 350, 360, 400, 500]) {
+    const out = await runFetch({ name: 'x', max_chars: mc }, { rpc: rpcSecretAtCut })
+    if (out.includes('sbp_' + 'a'.repeat(10))) leaked = true
+  }
+  check('runFetch never leaks secret plaintext at any truncation cut point', !leaked)
+  // and at a cut point well past the REDACTION span (which ends at 367), with plenty of trailing
+  // padding so truncation still actually occurs, the marker itself is visible in the output
+  const cappedInBody = await runFetch({ name: 'x', max_chars: 450 }, { rpc: rpcSecretAtCut })
+  check('runFetch shows REDACTION when the cut lands past the secret', cappedInBody.includes(REDACTION) && cappedInBody.includes('truncated at 450 chars'))
+
+  // runFetch honors max_chars end-to-end (redacted text can only get shorter, so the cap still holds
+  // even though REDACTION replaces a longer secret span with a shorter placeholder)
+  const rpcLongClean = async () => ({ data: [{ ...row, body: 'z'.repeat(5000) }], error: null })
+  const cappedClean = await runFetch({ name: 'x', max_chars: 200 }, { rpc: rpcLongClean })
+  check('runFetch respects max_chars on a clean long body', cappedClean.length <= 200 && cappedClean.includes('truncated at 200 chars'))
+  const uncapped = await runFetch({ name: 'x' }, { rpc: rpcLongClean })
+  check('runFetch omits truncation when max_chars not given', uncapped.includes('z'.repeat(5000)) && !uncapped.includes('truncated at'))
 }
 
 // ---- runFetch orchestration ----

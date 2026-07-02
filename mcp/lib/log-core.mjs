@@ -47,7 +47,7 @@ export function validateLogArgs(args) {
       if (v !== null && typeof v === 'object') throw new Error(`log_update: "detail" must be flat (no nested object/array at "${k}")`)
       if (typeof v === 'string' && v.length > MAX_DETAIL_STR) throw new Error(`log_update: "detail.${k}" string too long (>${MAX_DETAIL_STR})`)
     }
-    if (Buffer.byteLength(JSON.stringify(args.detail), 'utf8') > MAX_DETAIL_BYTES) throw new Error(`log_update: "detail" exceeds ${MAX_DETAIL_BYTES} bytes`)
+    if (new TextEncoder().encode(JSON.stringify(args.detail)).length > MAX_DETAIL_BYTES) throw new Error(`log_update: "detail" exceeds ${MAX_DETAIL_BYTES} bytes`)
     detail = args.detail
   }
   return { action: args.action, entity_type, entity_id, detail }

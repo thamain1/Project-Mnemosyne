@@ -9,6 +9,7 @@ import { slugify, findSecretMatches } from './remember-core.mjs'   // single sou
 
 export const MAX_NAME_LEN = 80
 export const REDACTION = '[REDACTED-SECRET]'
+export const MAX_CHARS_CAP = 16000   // hosted MCP clamp (thread 0027 P5-AGENT-DIET); local caller may omit for full body
 
 // EGRESS secret scan (Aegis 0022 #2). The store is meant to be secret-free (scanned on ingress), but ingress
 // scanning is not a guarantee — incident 0006 showed contamination can slip in via other paths. So before
@@ -28,14 +29,32 @@ export function redactSecrets(text) {
 // Strict, bounded arg validation (no coercion), mirroring the recall/remember slices.
 export function validateFetchArgs(args) {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) throw new Error('fetch: arguments must be an object')
-  for (const k of Object.keys(args)) if (k !== 'name') throw new Error(`fetch: unexpected argument "${k}"`)
+  for (const k of Object.keys(args)) if (k !== 'name' && k !== 'max_chars') throw new Error(`fetch: unexpected argument "${k}"`)
   if (typeof args.name !== 'string' || !args.name.trim()) throw new Error('fetch: "name" must be a non-empty string')
   // Normalize via the same slugify the writers use, so an exact slug from recall is idempotent and a sloppy
   // human-typed name still resolves.
   const name = slugify(args.name)
   if (!name) throw new Error('fetch: "name" slugifies to empty')
   if (name.length > MAX_NAME_LEN) throw new Error(`fetch: name exceeds ${MAX_NAME_LEN} chars`)
-  return { name }
+  let max_chars
+  if (args.max_chars !== undefined) {
+    if (typeof args.max_chars !== 'number' || !Number.isInteger(args.max_chars) || args.max_chars < 1 || args.max_chars > MAX_CHARS_CAP) {
+      throw new Error(`fetch: "max_chars" must be an integer in [1, ${MAX_CHARS_CAP}]`)
+    }
+    max_chars = args.max_chars
+  }
+  return { name, max_chars }
+}
+
+// Truncate an already-assembled (already-redacted) string as the LAST step — truncating before
+// redaction could split a secret span across the cut and defeat pattern matching (thread 0027 build
+// instruction #1). Appends an explicit marker rather than silently cutting (honest-truncation rule).
+export function truncateFormatted(text, maxChars) {
+  if (maxChars === undefined || text.length <= maxChars) return { text, truncated: false }
+  const marker = `\n…[truncated at ${maxChars} chars]`
+  // guarantee the output length invariant even when maxChars is too small to fit the marker itself
+  if (marker.length >= maxChars) return { text: marker.slice(0, maxChars), truncated: true }
+  return { text: text.slice(0, maxChars - marker.length) + marker, truncated: true }
 }
 
 // Render the full entry: header (title + classification + provenance + freshness + links) then the body.
@@ -53,12 +72,14 @@ export function formatEntry(row) {
     `source: ${row.source_path} · updated: ${row.updated_at}${links}\n\n${b.text}`
 }
 
-// Orchestrate: validate -> get_memory_entry RPC -> format (with egress redaction). rpc injectable.
+// Orchestrate: validate -> get_memory_entry RPC -> format (with egress redaction) -> truncate (last).
+// rpc injectable. max_chars is optional (omitted = full body, the existing local behavior).
 export async function runFetch(args, { rpc }) {
-  const { name } = validateFetchArgs(args)
+  const { name, max_chars } = validateFetchArgs(args)
   const { data, error } = await rpc('get_memory_entry', { p_name: name })
   if (error) throw new Error(`get_memory_entry error: ${error.message}`)
   const row = Array.isArray(data) ? data[0] : data   // table-returning RPC → array of rows
   if (!row) return `No memory entry named "${name}". Use recall to find the right name, or remember to create it.`
-  return formatEntry(row)
+  const { text } = truncateFormatted(formatEntry(row), max_chars)
+  return text
 }
