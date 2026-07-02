@@ -151,3 +151,33 @@ Exact-name fallback semantics unchanged. Add the exec-pro repro as a smoke case.
 Additive columns/index/RPC-params; `recall_memory` v2 is `create or replace` with defaulted params
 (old callers unaffected); cron job removable with one `cron.unschedule`. UI riders are frontend-only
 commits. Rollback = follow-up migration dropping additions; no data destruction anywhere.
+
+---
+
+## Aegis Design Review - 2026-07-02
+
+**Verdict: NOT APPROVED AS-IS.** The unit is the right next move and the scope is mostly well-shaped, but Sonnet should not build from this design until the two blocking contract gaps below are resolved. Both are design-level fixes; they do not require abandoning the unit.
+
+### Blocking findings
+
+1. **Hybrid recall RPC contract is not implementable/backward-compatible as written.** Existing `public.recall_memory(query_embedding vector(768), match_count int default 8)` takes only an embedding. The proposed FTS arm needs the original text query, but the design does not add a text-query parameter. Also, adding optional/defaulted filter parameters to `recall_memory` does not safely `create or replace` the existing two-argument function; PostgreSQL function identity is argument-type based, so this can create an overload while the old function remains, or create ambiguous two-argument dispatch. Required revision: define an explicit migration/deploy contract. Preferred: create a new service-role-only `recall_memory_hybrid(p_query text, p_embedding vector(768), p_match_count int default 8, p_kind text default null, p_project_id uuid default null, p_client_id uuid default null, p_deal_id uuid default null)` and update local/hosted recall callers to use it after apply. Keep the old `recall_memory(vector,int)` during the deploy window, or make it a wrapper only after callers have moved. Acceptance must prove old deployed code still works until push/deploy order is complete.
+
+2. **`client_360` auth/grant posture is ambiguous.** The design says `SECURITY DEFINER, service-role + member-read via endpoint`, but those are different exposure models. A SECURITY DEFINER function in `public` gets PUBLIC execute by default unless revoked, and it bypasses RLS, so this must be exact before implementation. Required revision: choose one path. Preferred for this repo's existing house pattern: `client_360` is service-role-only, empty `search_path`, all identifiers fully qualified, `EXECUTE` revoked from `public/anon/authenticated`, granted only to `service_role`, and exposed through a JWT endpoint that verifies active team membership before calling it. If Atlas wants direct authenticated RPC instead, the function must explicitly check `(select auth.uid())` is an active team member, revoke `public/anon`, grant only `authenticated`, and smoke-test anon/non-member denial.
+
+### Required design clarifications before build
+
+- **Stale-deal cron needs an exact idempotent implementation plan.** Specify whether `pg_cron` is already enabled or migration 0027 enables it, the stable job name, unschedule/reschedule behavior for reruns, and the function/run context. The digest should use an explicit system actor if available, or intentionally document `actor_id = null`. The stale predicate should be exact: open stages only, `activity_log.entity_type='deals' and entity_id=deals.id`, no duplicate digest for the same calendar day.
+- **Update all three CRM write paths.** 0032 correctly names `upsert_client`/`upsert_deal` and the dashboard forms, but `upsert_contact` already exists in migration 0017 and endpoint `functions/api/upsert-contact.ts`. The contact RPC, endpoint strict parser, frontend form, and smoke-contact coverage must all accept/round-trip `phone`, `linkedin`, and `title`.
+- **Bridge RPC history/audit posture.** Extending `update_memory` with `client_id`/`deal_id` changes link metadata that is currently outside the memory update surface. State whether `memory_versions` should snapshot prior link fields or whether audit via `log_activity` is sufficient. Also update the payload allowlist and preserve optimistic concurrency.
+- **Fetch heading error output must be redacted.** The design correctly requires redaction before sectioning. Apply the same discipline to the unknown-heading response that lists available headings; headings are user-controlled text and can contain secrets.
+
+### Non-blocking notes
+
+- `documents.deal_id` already exists from migration 0015; the design's "verify; add only what's missing" note is correct and should remain binding.
+- The FTS generated column is acceptable in principle, but post-build QC should look at migration cost and the EXPLAIN plan. If table growth is material, a trigger-maintained `fts` column may be safer than a table rewrite from a stored generated column.
+- The UI riders are acceptable only as bounded frontend work. Keep Mission-Control/Agentic-OS out of this unit as written.
+- The vitals strip must not loosen `machine_tokens` read exposure. Use a service-role endpoint/count RPC if direct member SELECT is not already safe.
+
+### Path to approval
+
+Revise 0032 to resolve the two blockers and add the required clarifications as binding build notes. After that, Aegis expects this design to be approvable for Sonnet implementation with migration 0027 held unapplied until post-build QC and Jesse apply-go.
