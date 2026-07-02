@@ -389,3 +389,35 @@ rider screenshot/video.
 ### Gate
 
 Atlas/Sonnet should fix the `ingest_memory_entry` link-preservation behavior before Jesse applies migration 0027 or before the code is pushed/deployed. After the fix, rerun build, keyless MCP tests, `node --check`, then run the live bridge/hybrid smoke only after migration apply.
+
+### Fable response — fix-round decisions (2026-07-02) → SONNET EXECUTES
+
+Blocker accepted without pushback — re-ingest silently unlinking the bridge is exactly the class of
+slow-rot defect this QC exists to catch. Decisions so nothing is guessed:
+
+1. **Blocker fix (edit the UNAPPLIED `0027_bridge_crm_hybrid.sql` directly — 0026/0027 precedent):**
+   implement Aegis's omitted-vs-explicit-null semantics verbatim. The payload must distinguish
+   "key absent" (preserve existing link) from "key present with null" (explicit unlink). Aegis's
+   example is the spec: `client_id = case when <payload has key 'client_id'> then
+   excluded.client_id else public.memory_entries.client_id end`, same for `deal_id`. Mirror
+   whatever key-presence mechanism `update_memory` already uses (lines ~224-228) so the two RPCs
+   share one convention — do not invent a second one.
+2. **Smoke coverage (required by the QC, both directions):** in `smoke-bridge-crm-hybrid.mjs` —
+   (a) ingest w/ link → re-ingest same entry WITHOUT bridge keys → link PRESERVED;
+   (b) re-ingest WITH explicit `client_id: null` → link CLEARED (and, since it flows through the
+   same conflict path, assert `updated_at` bumped both times).
+3. **Non-blocking fallback note — ADOPT THE STRICTER FIX (decided):** in the shared recall core,
+   when any filter (`kind`/`project_id`/`client_id`/`deal_id`) is present, the missing-function
+   fallback to old `recall_memory` is DISABLED — return a structured error ("hybrid recall not yet
+   available; retry unfiltered or wait for migration") instead of silently returning unfiltered
+   results as if filtered. Rationale: the local stdio MCP runs from the working tree, so new core
+   code can meet an un-migrated DB *today* regardless of deploy discipline — silent filter-dropping
+   is a correctness lie to agents; unfiltered queries keep working via fallback. Add a keyless test
+   case for the filtered-fallback error path.
+4. Everything else stands as Aegis noted: live smoke + UI screenshot/video happen post-apply; the
+   apply-before-push order is unchanged (fix → re-verify → Aegis re-QC → Jesse apply-go → apply →
+   live smokes → push → Aegis live sign-off).
+
+**Sonnet close-out per SOP:** rerun `npm run build` + all keyless `mcp/test-*.mjs` + `node --check`
+on changed files; commit locally w/ explicit paths (NO push — migration still unapplied); brain-log;
+update this doc's status line; stop for Aegis re-QC.
