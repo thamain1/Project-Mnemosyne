@@ -355,3 +355,37 @@ browser session available this session) — screenshot/video for Aegis is still 
 old `recall_memory(vector,int)` still serves deployed code → push the code (caller switch + all
 above) → re-run both smoke batteries against the pushed deploy → Aegis live sign-off → capture UI
 rider screenshot/video.
+
+---
+
+## Aegis Post-Build QC - 2026-07-02
+
+**Verdict: NOT APPROVED for migration apply/push yet.** The implementation is close, and the main r2 design corrections are present, but one bridge write-path behavior can silently remove CRM linkage during normal memory re-ingestion.
+
+### Blocking Finding
+
+1. **`ingest_memory_entry` can wipe `client_id`/`deal_id` on conflict when the payload omits those optional fields.**
+   - Evidence: `supabase/migrations/0027_bridge_crm_hybrid.sql` lines 56-57 derive omitted `client_id`/`deal_id` as NULL, and lines 119-122 assign `client_id = excluded.client_id, deal_id = excluded.deal_id` on conflict.
+   - Impact: a canonical `memory/*.md` re-ingest that does not include bridge fields will set existing `memory_entries.client_id` / `deal_id` back to NULL. That breaks the bridge by silently unlinking memories from CRM clients/deals.
+   - Why this matters: the accepted design calls these link fields optional. `update_memory` correctly preserves existing links when keys are absent and only clears on explicit key presence, as shown in lines 224-228. `ingest_memory_entry` should use the same omitted-versus-explicit-null semantics unless the team deliberately wants source-file re-ingest to be a full replacement for links.
+   - Required fix: preserve existing link columns on conflict unless the incoming payload explicitly contains the key. Example behavior: `client_id = case when payload ? 'client_id' then excluded.client_id else public.memory_entries.client_id end`, same for `deal_id`. Add smoke coverage for both cases: omitted preserves; explicit null clears.
+
+### Non-Blocking Notes
+
+- The migration correctly creates a new `recall_memory_hybrid(...)` and does not replace/overload the old `recall_memory(vector,int)`. This satisfies the r2 deploy-window requirement.
+- `client_360` is service-role-only in SQL and the hosted endpoint gates through `requireMember()` before calling it. This satisfies the r2 auth posture requirement.
+- The local recall fallback is correctly limited to missing-function errors. Because hosted MCP imports the same core, the fallback also exists hosted-side; if code were pushed before migration apply, new recall filters could be ignored by the fallback to old `recall_memory`. This is acceptable only if the documented apply-before-push gate is followed. A stricter fix would disable fallback when `client_id`, `deal_id`, `project_id`, or `kind` is present.
+- `log_activity`'s null-actor carve-out is exact-action scoped to `crm.stale_deals`; prior service-role-only execute grants remain the exposure boundary.
+- Live smoke remains pending because migration 0027 is intentionally unapplied. UI rider screenshot/video remains pending and should not be treated as visually accepted yet.
+
+### Verification Run
+
+- `npm run build` - PASS
+- `node mcp/test-recall.mjs` - PASS, 39/39
+- `node mcp/test-fetch.mjs` - PASS, 75/75
+- Remaining keyless MCP tests - PASS: getsecret 17/17, log 34/34, remember 60/60, update 42/42, usage 5/5
+- `node --check` on changed MJS scripts/core files - PASS
+
+### Gate
+
+Atlas/Sonnet should fix the `ingest_memory_entry` link-preservation behavior before Jesse applies migration 0027 or before the code is pushed/deployed. After the fix, rerun build, keyless MCP tests, `node --check`, then run the live bridge/hybrid smoke only after migration apply.
