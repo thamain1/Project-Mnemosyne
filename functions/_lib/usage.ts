@@ -8,6 +8,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export type UsageEvent = {
   actorId: string | null
   tool: string
+  // 'endpoint' (default) for the JWT /api/* surface; 'mcp' for the hosted MCP endpoint (thread 0029
+  // build instruction #2 — local vs hosted is distinguished by actor, not by source spelling).
+  source?: 'endpoint' | 'mcp'
   model?: string | null
   inputTokens?: number | null
   outputTokens?: number | null
@@ -20,7 +23,7 @@ export async function logUsage(admin: SupabaseClient, ev: UsageEvent): Promise<v
   try {
     await admin.rpc('log_usage', {
       p_actor: ev.actorId,
-      p_source: 'endpoint',
+      p_source: ev.source ?? 'endpoint',
       p_tool: ev.tool,
       p_model: ev.model ?? null,
       p_input_tokens: ev.inputTokens ?? null,

@@ -285,7 +285,8 @@ export const onRequest = async (context: any): Promise<Response> => {
     }
     const bytesOut = new TextEncoder().encode(JSON.stringify(resultBody)).length
     context.waitUntil(logUsage(admin, {
-      actorId: actor.id, tool: `mcp/${tool.name}`, model: tool.name === 'recall' ? 'gemini-embedding-001' : null,
+      actorId: actor.id, tool: `mcp/${tool.name}`, source: 'mcp',
+      model: tool.name === 'recall' ? 'gemini-embedding-001' : null,
       bytesIn, bytesOut, ok,
     }))
     return rpcResult(id, resultBody)
