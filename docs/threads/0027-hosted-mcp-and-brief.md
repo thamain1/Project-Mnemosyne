@@ -434,3 +434,27 @@ Aegis re-QC passed (relayed via Jesse) → gate order executed. **All steps comp
 **Remaining (not code):** Aegis live sign-off on this record → provision first real `mnk_` token
 (`scripts/provision-machine.mjs`) → manual second-machine `claude mcp add --transport http` e2e
 (acceptance criterion 10).
+
+### ✅ Acceptance criterion 10 COMPLETE — 2026-07-02 (exec-pro e2e)
+
+First real machine provisioned: **exec-pro** (`7d329bf4-a0cd-4f4a-b087-1f09288ad940`, scopes
+recall/fetch/log_update/brief, no expiry; token handed to Jesse once, hash-only stored). Jesse ran
+the connect steps on the remote machine (old dead legacy stdio setup removed, one `claude mcp add
+--transport http` line). Verified from BOTH sides:
+
+- **Client side (Jesse's report):** exactly 4 tools listed (no get_secret, no remember);
+  `brief("intellioptics-2-5")` returned the full resume via `memory_slug_fallback`; `log_update`
+  `agent.note` succeeded and reported its linked project id.
+- **Server side (Fable):** `usage_events` rows `mcp/brief` + `mcp/log_update` with `source='mcp'`
+  and actor exec-pro; `activity_log` row `agent.note` actor exec-pro with `entity_id` SET (the 0027
+  forward-fix rider working — and hitting a `projects` row that exists because Sonnet's 0030
+  backfill had landed in prod minutes earlier).
+
+Behavior note (per spec, not a defect): the slug input `intellioptics-2-5` misses the FK path
+(projects row is named "IntelliOptics 2.5" — hyphens/spaces don't cross-match) and correctly
+exact-matches the memory entry via fallback; under fallback, docs=[] by design and activity
+detail-matching uses the slug (no hits). Typing the display name gets the FK path. A
+name-normalization pass belongs to P1-HYBRID, not this unit.
+
+**With criterion 10 closed, every scriptable + manual acceptance criterion of this unit is met.
+Outstanding: Aegis live sign-off over the full record above.**
