@@ -1,28 +1,69 @@
 # 0025 — P5-TELEMETRY: usage + token telemetry (design)
 
 - **Opened:** 2026-07-01 (Atlas)
-- **Status:** BUILT (2026-07-01, Sonnet 5) — Aegis cleared the design; migration `0024` written and
-  HELD UNAPPLIED pending apply-go. Code committed locally, NOT pushed (standing rule: push only when
-  asked). `npm run build` green; keyless MCP unit tests pass (`mcp/test-usage.mjs`, 5/5); live endpoint
-  smoke (`scripts/smoke-usage-telemetry.mjs`) written but NOT yet run against prod — it needs migration
-  `0024` applied first (the RPC/table it asserts against don't exist until then).
+- **Status:** LIVE for 6/7 endpoints + MCP + dashboard (2026-07-02, Sonnet 5). `generate-contract` is
+  temporarily UN-INSTRUMENTED after a P0 prod incident (see "Incident" below) — root cause not yet
+  found. Migrations `0024`+`0025` applied to prod. `npm run build` green. Live smoke
+  (`scripts/smoke-usage-telemetry.mjs`) run against prod: 12/14 pass, 2 known-fail
+  (generate-contract's usage-row checks, expected given the revert).
 - **Unit:** P5-TELEMETRY from thread `0024` Pillar 5. Sequence position: step 2 (after the hygiene
   sprint, BEFORE any optimization it is meant to judge).
 - **Working model:** Atlas plans (this doc) → Aegis QC → Sonnet 5 implements → gate → smoke → live.
-- **Migration number:** `0024_usage_telemetry.sql` (0023 = rate limiting).
+- **Migration number:** `0024_usage_telemetry.sql` (0023 = rate limiting); `0025_usage_events_grant_fix.sql`
+  is a same-day follow-up (see Build notes).
 
-## Build notes (Sonnet 5, 2026-07-01)
+## Incident (2026-07-02) — generate-contract 500, root cause NOT yet found
+
+Pushing the `log_usage` instrumentation broke `/api/generate-contract` in production: every call on
+the happy path returned a raw Cloudflare 500 ("Worker threw exception", CF error 1101) instead of the
+expected 200. The other 6 instrumented endpoints (recall, search-docs, ask-docs, render-document,
+save-document, save-rendered-document) deployed and worked correctly with the identical `logUsage()`
+helper and RPC.
+
+Debugging attempted, in order:
+1. **`wrangler pages deployment tail`** (with Jesse's explicit go-ahead, since it reads live prod
+   traffic) — connected successfully but captured NO log line for the failing request, even across
+   several retries. CF error 1101 appears to be a platform-level isolate termination that bypasses
+   normal Workers Functions logging, not a catchable JS exception.
+2. **Hypothesis: added latency tipped the request over Cloudflare's time budget** — generate-contract
+   already runs a slow (up to 45s) Gemini `generateContent` call; awaiting one more network round-trip
+   (the `log_usage` RPC) after it seemed like a plausible way to cross a per-request limit. Fix: switched
+   all 7 endpoints from `await logUsage(...)` to `context.waitUntil(logUsage(...))` (fire-and-forget,
+   never adds response latency — this is the more correct pattern regardless, kept for the other 6).
+   **Did NOT fix it** — identical 500 after redeploy. Hypothesis rejected.
+3. **Reverted `generate-contract.ts` to the exact pre-instrumentation content** (from commit `788200b`)
+   to restore service. Confirmed restored: 200 with the exact payload that was crashing moments earlier.
+
+**Static code review found no logical bug** in the diff (a `generate()` return-type change to also
+capture `usageMetadata.promptTokenCount`/`candidatesTokenCount`, plus one `logUsage()` call at the end)
+— it mirrors the working pattern in `ask-docs.ts` (which also parses `usageMetadata` and also calls
+Gemini `generateContent`, and works fine live). What's specific to `generate-contract.ts` and not
+`ask-docs.ts`: the grounding/exemplar embed step, the larger prompt (up to 4 draft sections plus
+governance preamble), and a bigger assembled output (`md`, a full contract with boilerplate). None of
+these were conclusively implicated — this needs either working `wrangler tail` output for this specific
+error class, or a bisection redeploy test outside of live prod hours.
+
+**Current state:** `generate-contract` has NO usage telemetry. The other 6 endpoints + MCP + dashboard
+are live and confirmed working. This is an open item, not closed — see thread `0024`'s open-items list.
+
+## Build notes (Sonnet 5, 2026-07-01/02)
 
 - **Schema/RPC:** `supabase/migrations/0024_usage_telemetry.sql` — `usage_events` table + `log_usage()`
   RPC, matching 0023's posture exactly (RLS on, explicit revoke from anon/authenticated, member
-  SELECT-only via `is_team_member()`, `log_usage` granted to `service_role` only).
+  SELECT-only via `is_team_member()`, `log_usage` granted to `service_role` only). **Bug found on
+  apply:** `0024` copied `0023`'s `revoke all` verbatim, which also revoked the base SELECT grant that
+  the member-select RLS policy needs underneath it (unlike `rate_limits`, `usage_events` IS meant to be
+  member-readable) — authenticated got "permission denied for table" before RLS even evaluated. Fixed
+  by `0025_usage_events_grant_fix.sql` (grants SELECT to `authenticated`, matching `activity_log`'s
+  pattern). Both migrations applied to prod and verified via direct grant queries.
 - **Shared helpers:** `functions/_lib/usage.ts` (`logUsage`, CF endpoints) and `mcp/lib/usage-core.mjs`
   (`logMcpUsage` + `TELEMETRY_ON` env gate, MCP server). Both wrap the RPC call in try/catch with no
   rethrow — a telemetry failure can never fail the parent request (this is the structural proof for
-  gate criterion 4, verified by code inspection + `mcp/test-usage.mjs`, not live fault injection).
-- **Instrumented (7 CF endpoints):** `recall`, `search-docs`, `ask-docs`, `generate-contract`,
+  gate criterion 4, verified by code inspection + `mcp/test-usage.mjs`, not live fault injection). All
+  callers use `context.waitUntil(logUsage(...))`, not `await`, so telemetry never adds response latency.
+- **Instrumented (6 of 7 CF endpoints — see Incident):** `recall`, `search-docs`, `ask-docs`,
   `render-document`, `save-document`, `save-rendered-document`. Each fires one best-effort `log_usage`
-  after its work completes.
+  after its work completes. `generate-contract` is NOT instrumented (reverted after a P0 incident).
 - **Instrumented (MCP):** all 6 tool handlers wrapped at the `CallToolRequestSchema` dispatch level in
   `mcp/server.mjs` (not inside each core, to keep cores pure/testable) — records `bytes_in`/`bytes_out`
   (args/result JSON length) and success/failure. Env-gated `MNEMOSYNE_TELEMETRY` (default on).
@@ -33,16 +74,15 @@
   `/api/recall` call should produce "provider token counts populated" — but `recall`/`search-docs` only
   call Gemini's `embedContent`, which does not expose `usageMetadata` (unlike `generateContent`). Token
   counts for embed-only calls are honestly `null`; bytes are the proxy metric, per the design's own
-  "Honest scope" section. The smoke script instead asserts real provider tokens on
-  `/api/generate-contract` (which does call `generateContent`) and asserts bytes-only for recall/search.
+  "Honest scope" section. `ask-docs` (which DOES call `generateContent`) confirms real tokens populate
+  correctly; `generate-contract` was meant to be the other such proof point but is currently reverted.
 - **MCP live-stdio smoke (gate criterion 5) NOT built:** no existing MCP test in this repo spawns the
   real stdio server (`mcp/test-*.mjs` are all keyless, mocked-rpc unit tests) — there's no established
   pattern to extend. Built the keyless equivalent instead (`mcp/test-usage.mjs`, 5/5 passing) covering
   `logMcpUsage`'s RPC shape, actor-null coercion, and best-effort swallow-on-error. The live DB write
   path itself (`log_usage` grants) IS exercised live by `smoke-usage-telemetry.mjs` criterion 1c.
-- **Next steps (need explicit go):** apply migration `0024` (Supabase Management API) → run
-  `scripts/smoke-usage-telemetry.mjs` against prod → if 0/0, push `main` (CF auto-deploys) → re-run the
-  smoke once live to confirm the deployed code path.
+- **Open item:** find the real root cause of the `generate-contract` crash and re-instrument it. Needs
+  either working `wrangler tail` output for a CF-1101-class error, or an isolated bisection test.
 
 ## Why (one paragraph)
 

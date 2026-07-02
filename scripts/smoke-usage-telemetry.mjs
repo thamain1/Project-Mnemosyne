@@ -96,6 +96,10 @@ async function main() {
     check('recall row has bytes populated (proxy metric)', (recallRows?.[0]?.bytes_in ?? 0) > 0 && (recallRows?.[0]?.bytes_out ?? 0) >= 0)
 
     // ---- 3. /api/generate-contract produces a row with real provider token counts ----
+    // KNOWN FAIL as of 2026-07-02 (thread 0025): generate-contract's log_usage instrumentation was
+    // reverted after it caused a live 500 (CF error 1101) on this exact happy path — root cause not
+    // yet identified (context.waitUntil did not fix it either). This endpoint currently emits NO
+    // usage_events row by design until re-instrumented; the 200 status check should still pass.
     const beforeGen = Date.now()
     const gc = await post('/api/generate-contract', {
       doc_type: 'mou',
