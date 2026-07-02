@@ -3,6 +3,9 @@
 - **Opened:** 2026-07-02 (Sonnet 5, during thread 0025 P5-TELEMETRY build)
 - **Status:** ✅ **RESOLVED 2026-07-02 (Fable), commit `7907c9b`** — root cause found by static
   review, fixed, re-instrumented, verified live (smoke 14/14). See "ROOT CAUSE + RESOLUTION" below.
+- **Aegis signoff:** ✅ 2026-07-02 via chat (docs-commit approval timed out; recorded here on its
+  behalf) — independently re-ran build + functions typecheck, mcp/test-usage 5/5, live smoke 14/14,
+  and confirmed the resolution. Proceed.
 - **Severity:** Was P0 (live sales-factory endpoint down); closed at P2 (endpoint had been restored
   by revert; now re-instrumented and fully working).
 

@@ -1,6 +1,15 @@
 # 0025 — P5-TELEMETRY: usage + token telemetry (design)
 
 - **Opened:** 2026-07-01 (Atlas)
+- **Aegis signoff:** ✅ **2026-07-02, via chat** (docs-commit approval timed out on Aegis's side, so
+  the signoff is recorded here on its behalf). Independently verified: `npm run build` incl. the new
+  functions/ typecheck; `mcp/test-usage.mjs` 5/5; live prod smoke 14/14; generate-contract 200 +
+  exactly one `usage_events` row with real provider tokens; render-document `bytes_out` ≈ PDF size;
+  RLS/RPC posture (anon/auth INSERT denied, member SELECT ok, `log_usage` execute service_role-only).
+  Non-blocking notes: stale known-fail comment in the smoke script (fixed `afd5f84`+1); MCP live
+  stdio smoke still not built (keyless helper test + live endpoint DB-write coverage stands in);
+  **service-role key rotation remains REQUIRED before teammate/remote rollout** (gates the hosted-MCP
+  unit).
 - **Status:** ✅ **CLOSED — LIVE for 7/7 endpoints + MCP + dashboard** (2026-07-02). The
   `generate-contract` incident is RESOLVED (root cause = missing `logUsage` import — full story in
   thread `0026`); re-instrumented in commit `7907c9b` and verified live: smoke
