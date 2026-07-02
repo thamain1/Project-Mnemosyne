@@ -93,10 +93,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   if (error) return json({ error: 'search failed' }, 502)
 
   const results = data ?? []
-  await logUsage(admin, {
+  context.waitUntil(logUsage(admin, {
     actorId: uid, tool: 'api/search-docs', model: MODEL,
     bytesIn: query.length, bytesOut: JSON.stringify(results).length,
-  })
+  }))
   return json({ results })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

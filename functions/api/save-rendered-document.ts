@@ -99,10 +99,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     } catch (e: any) { cleanup = `failed(${String(e?.message ?? e).slice(0, 60)})` }
     return json({ error: 'save failed', detail: String(error.message).slice(0, 200), cleanup, orphan: cleanup === 'ok' ? null : path }, 502)
   }
-  await logUsage(admin, {
+  context.waitUntil(logUsage(admin, {
     actorId: auth.uid, tool: 'api/save-rendered-document', model: null,
     bytesIn: body.markdown.length, bytesOut: r.pdf.byteLength,
-  })
+  }))
   return json({ id: data, doc_type: spec.id, title, storage_path: path }, 200)
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

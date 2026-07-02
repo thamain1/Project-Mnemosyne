@@ -233,11 +233,11 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const scan = scanContract(md)
   for (const h of scan.hits) warnings.push(`Prohibited content (${h.category}): "${h.match}" — review/remove before saving.`)
 
-  await logUsage(admin, {
+  context.waitUntil(logUsage(admin, {
     actorId: uid, tool: 'api/generate-contract', model: toDraft.length ? GEN_MODEL : null,
     inputTokens: genInputTokens, outputTokens: genOutputTokens,
     bytesIn: total, bytesOut: md.length,
-  })
+  }))
   return json({ doc_type: docType, title: TITLES[docType], markdown: md, sources, warnings, scan_clean: scan.clean })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

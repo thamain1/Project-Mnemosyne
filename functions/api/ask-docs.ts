@@ -131,10 +131,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   try { ({ text: answer, inputTokens, outputTokens } = await generate(question, ctx, GEMINI)) }
   catch { return json({ error: 'generation failed' }, 502) }
 
-  await logUsage(admin, {
+  context.waitUntil(logUsage(admin, {
     actorId: uid, tool: 'api/ask-docs', model: GEN_MODEL,
     inputTokens, outputTokens, bytesIn: question.length, bytesOut: answer.length,
-  })
+  }))
   return json({ answer, sources })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)

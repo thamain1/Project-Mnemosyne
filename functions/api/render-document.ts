@@ -73,10 +73,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   // ---- expensive: Cloudflare Browser Rendering lockdown ----
   const r = await renderScannedToPdf(context.env || {}, { title, markdown: body.markdown, policy: scan.policy })
   if (!r.ok) return json(r.body, r.status)
-  await logUsage(auth.admin, {
+  context.waitUntil(logUsage(auth.admin, {
     actorId: auth.uid, tool: 'api/render-document', model: null,
     bytesIn: body.markdown.length, bytesOut: r.pdf.byteLength,
-  })
+  }))
   return new Response(r.pdf, {
     status: 200,
     headers: {
