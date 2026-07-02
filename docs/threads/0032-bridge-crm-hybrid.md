@@ -1,9 +1,15 @@
 # 0032 — P2-BRIDGE + P2-CRM + P1-HYBRID: lead-gen foundation (design)
 
 - **Opened:** 2026-07-02 (Atlas/Fable)
-- **Status:** DESIGN r2 — Aegis r1 = NOT APPROVED AS-IS (2 blockers, 4 required clarifications;
-  full review at bottom). **All resolved in the r2 sections below** (marked "r2") — awaiting Aegis
-  re-review, then Sonnet 5 builds. No build work authorized yet.
+- **Status:** ✅ **DESIGN APPROVED (Aegis re-review, 2026-07-02) — HANDED TO SONNET 5 FOR
+  IMPLEMENTATION.** History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved. Both
+  reviews at bottom. **Sonnet: the re-review's "Required implementation gate notes" are BINDING** —
+  especially: create `recall_memory_hybrid`, NEVER touch `recall_memory(vector,int)` in this unit
+  (stale r1 wording in acceptance/rollback has been cleaned to match, but the Aegis ruling governs);
+  exactly one cron job after migration re-run; all 3 CRM paths × 4 layers; heading-list errors from
+  the redacted body; vitals must not loosen `machine_tokens` exposure. Migration
+  `0027_bridge_crm_hybrid.sql` stays UNAPPLIED until Aegis post-build QC + Jesse apply-go; deploy
+  order = apply → prove old recall serves deployed code → push caller switch.
 - **Unit:** roadmap thread `0024` recommended-sequence step 4 ("lead-gen foundation, immediately
   useful to the team"). **P5-FETCH-SCOPE rides with HYBRID** per the roadmap. Two small UI riders
   from Jesse's 2026-07-02 concept direction (see "UI riders" — `docs/UIandAgentIdeal.md`,
@@ -194,16 +200,17 @@ Exact-name fallback semantics unchanged. Add the exec-pro repro as a smoke case.
    telemetry 14/14, log-update 15/15, hosted MCP 60/60); new checks land in a
    `scripts/smoke-bridge-crm-hybrid.mjs` battery + hosted-MCP additions where surface changed.
 9. Migration held UNAPPLIED until Aegis post-build QC + Jesse apply-go (0024 standing rule: no push
-   of hard-dependent code before apply — Sonnet: `recall_memory` v2 is `create or replace`, so old
-   deployed code keeps working against the new function ONLY if the signature stays
-   backward-compatible; new optional params must have defaults. Verify both directions before push
-   ordering is decided; state the order in the build notes).
+   of hard-dependent code before apply). **(r2 wording, binding per the Aegis re-review):** the
+   migration CREATES the new `recall_memory_hybrid` — the existing `recall_memory(vector,int)` is
+   NOT replaced/overloaded/wrapped in this unit, so deployed old code is untouched by apply. Deploy
+   order: apply 0027 → prove old function still serves deployed code → push the caller switch.
 
 ## Rollback
 
-Additive columns/index/RPC-params; `recall_memory` v2 is `create or replace` with defaulted params
-(old callers unaffected); cron job removable with one `cron.unschedule`. UI riders are frontend-only
-commits. Rollback = follow-up migration dropping additions; no data destruction anywhere.
+Additive columns/index/new-RPC-only (r2: `recall_memory_hybrid` is a NEW function; the old
+`recall_memory(vector,int)` is untouched, so rolling back the new one cannot affect deployed
+callers); cron job removable with one `cron.unschedule`. UI riders are frontend-only commits.
+Rollback = follow-up migration dropping additions; no data destruction anywhere.
 
 ---
 
