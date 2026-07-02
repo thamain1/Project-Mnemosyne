@@ -284,11 +284,17 @@ export const onRequest = async (context: any): Promise<Response> => {
       resultBody = toolError(String(e?.message ?? e).slice(0, 500))
     }
     const bytesOut = new TextEncoder().encode(JSON.stringify(resultBody)).length
-    context.waitUntil(logUsage(admin, {
+    // AWAITED, deliberately NOT context.waitUntil (2026-07-02 gate-run finding): on this route the
+    // waitUntil-deferred logUsage write never reached Postgres — zero rows ever, while the awaited
+    // rate_take RPC on the same client in the same handler writes fine, and waitUntil+logUsage works
+    // in the onRequestPost /api/* handlers. Root cause in the Pages runtime not established; awaiting
+    // is correct-by-construction here (logUsage swallows all errors, so it cannot fail the request)
+    // at the cost of ~100-200ms per machine tool call.
+    await logUsage(admin, {
       actorId: actor.id, tool: `mcp/${tool.name}`, source: 'mcp',
       model: tool.name === 'recall' ? 'gemini-embedding-001' : null,
       bytesIn, bytesOut, ok,
-    }))
+    })
     return rpcResult(id, resultBody)
   }
 
