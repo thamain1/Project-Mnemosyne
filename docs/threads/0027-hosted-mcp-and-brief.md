@@ -184,3 +184,28 @@ fetch-core's redaction; #2: restrict brief to entries with kind='project'). Reco
 Endpoint is additive (`functions/api/mcp.ts` — delete file to kill the surface). Migration is
 additive (new table + two columns + one RPC); rollback = revoke/drop follow-up migration. No existing
 endpoint's behavior changes in this unit, so rollback risk is confined to the new surface.
+
+---
+
+## Aegis QC Review - 2026-07-02
+
+**Verdict: NOT APPROVED AS-IS.** The direction is correct, but Atlas should revise the design before Sonnet 5 starts implementation. Hosted MCP with revocable machine tokens is the right architecture for team/agent access without spreading the service-role key, and the service-role key rotation gate is correctly placed inside this unit. The blockers below are design gaps, not reasons to abandon the unit.
+
+### Blocking findings
+
+1. **Machine identity model is unresolved.** The design proposes machine rows in `team_members`, but the current schema has `team_members.id references auth.users(id)` in `supabase/migrations/0001_init.sql`. Machines intentionally have no Supabase Auth user in this design. The fallback standalone `machine_accounts` table also conflicts with existing actor paths: `activity_log.actor_id`, `rate_limits.actor_id`, and `usage_events.actor_id` all reference `team_members`. **Aegis recommendation:** choose the identity model now. Prefer relaxing/dropping the `auth.users` FK on `team_members.id`, keeping humans mapped by `auth.uid()` while allowing `kind='machine'` rows in the same actor table. Do not leave this for Sonnet to discover mid-build.
+
+2. **Streamable HTTP protocol coverage is incomplete.** The design currently frames the endpoint as one `POST /api/mcp` surface, but MCP Streamable HTTP requires a single endpoint that supports both `POST` and `GET`, requires client `Accept` handling, defines `202 Accepted` for accepted notifications/responses, allows `GET` to return `405 Method Not Allowed` when no SSE stream is offered, and requires `MCP-Protocol-Version` behavior. The spec also requires `Origin` validation for security. **Revision required:** add these transport requirements to the design and acceptance battery before implementation.
+
+3. **`brief` project linkage is under-specified.** The design says `brief` resolves by memory entry names/tags and pulls `activity_log` plus `documents`, but the current schema only gives `project_id` to `memory_entries` and `documents`; `activity_log` is generic `entity_type/entity_id/detail`. **Revision required:** define deterministic resolution: project name/slug -> `projects.id`; resume -> `memory_entries.kind='project'` for that project; docs -> `documents.project_id`; activity -> `activity_log` rows where `entity_type='projects' and entity_id=project_id` unless the design explicitly expands the linkage rules.
+
+### Non-blocking design corrections
+
+- `fetch` currently accepts only `{ name }`; 0027 adds `max_chars`. Specify the helper/interface change and require redaction before truncation.
+- Telemetry should use `source='mcp'` for remote MCP calls unless the dashboard intentionally treats the hosted MCP endpoint as endpoint traffic. The current design says `source='endpoint'`; Atlas should decide explicitly.
+- `rate_take` currently returns boolean only. The design's 429 "retry hint" requirement either needs a helper-level estimate or the acceptance criterion should be changed.
+- Remote `log_update` should have an action allowlist/prefix rule for machine-originated events so machines cannot write misleading audit-like actions such as `secret.read` or `document.download`.
+
+### Aegis path to approval
+
+Revise 0027 to resolve the three blockers, keep the existing rotation gate, and add the non-blocking corrections to Sonnet's build instructions. After that revision, Aegis expects this design to be approvable for Sonnet implementation with migrations held unapplied until post-design QC and apply-go.
