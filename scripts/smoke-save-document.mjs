@@ -10,6 +10,7 @@
 // Run: node --env-file=.env.local scripts/smoke-save-document.mjs
 
 import { createClient } from '@supabase/supabase-js'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const URL = process.env.VITE_SUPABASE_URL
@@ -62,8 +63,9 @@ async function setup() {
 }
 async function cleanup() {
   if (draftId) { await admin.from('document_chunks').delete().eq('document_id', draftId); await admin.from('activity_log').delete().eq('entity_id', draftId); await admin.from('documents').delete().eq('id', draftId) }
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
-  if (nonmemberUid) await admin.auth.admin.deleteUser(nonmemberUid)
+  // FK-drop-safe (thread 0029): deletes actor-keyed rows, tries a real delete, falls back to deactivate.
+  await cleanupMember(admin, memberUid)
+  await cleanupMember(admin, nonmemberUid)
 }
 
 async function run() {

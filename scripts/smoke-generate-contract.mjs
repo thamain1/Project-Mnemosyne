@@ -10,6 +10,7 @@
 // Run: node --env-file=.env.local scripts/smoke-generate-contract.mjs
 
 import { createClient } from '@supabase/supabase-js'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const URL = process.env.VITE_SUPABASE_URL
@@ -91,8 +92,9 @@ async function setup() {
   nonmemberUid = n.data.user.id
 }
 async function cleanup() {
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
-  if (nonmemberUid) await admin.auth.admin.deleteUser(nonmemberUid)
+  // FK-drop-safe (thread 0029): deletes actor-keyed rows, tries a real delete, falls back to deactivate.
+  await cleanupMember(admin, memberUid)
+  await cleanupMember(admin, nonmemberUid)
 }
 
 function assertDoc(label, r, fills, constants, expectedType) {

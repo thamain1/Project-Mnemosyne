@@ -15,6 +15,7 @@
 // Run: node --env-file=.env.local scripts/smoke-usage-telemetry.mjs
 
 import { createClient } from '@supabase/supabase-js'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const URL = process.env.VITE_SUPABASE_URL
@@ -55,8 +56,8 @@ async function setup() {
   if (ins.error) throw new Error('insert team_members: ' + ins.error.message)
 }
 async function cleanup() {
-  if (memberUid) await admin.from('usage_events').delete().eq('actor_id', memberUid)
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
+  // FK-drop-safe (thread 0029): deletes actor-keyed rows, tries a real delete, falls back to deactivate.
+  await cleanupMember(admin, memberUid)
 }
 
 async function main() {

@@ -15,6 +15,13 @@
 // token is issued — a copy of it traveled to a remote machine under the killed REMOTE-SETUP runbook.
 // Rotation is a deploy-gate step in this unit's acceptance criteria, not optional and not separate.
 //
+// SCOPE DECISION (thread 0029 item 4): v1 is CLI/server-side MCP clients ONLY. Browser-hosted clients
+// (e.g. a claude.ai web connector) are explicitly OUT OF SCOPE — they bring OAuth/dynamic-client-
+// registration and a real CORS surface that belongs to a future unit (already listed in thread 0027's
+// Non-goals). Consequences, deliberate, not gaps: no CORS headers, no preflight path — OPTIONS (and
+// every other non-POST method) → 405 with `Allow: POST, GET`; a browser `Origin` header (including
+// `https://claude.ai`) is rejected exactly like any other foreign origin, pre-auth, per originAllowed().
+//
 // Reuses the SAME core logic as the local stdio MCP server — not a reimplementation:
 //   - recall:     mcp/lib/recall-core.mjs  (embed + recall_memory RPC)
 //   - fetch:      mcp/lib/fetch-core.mjs   (get_memory_entry RPC + egress secret-redaction, now with
@@ -127,6 +134,35 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+const BODY_TOO_LARGE = Symbol('body_too_large')
+
+// Aegis post-build QC finding: trusting Content-Length alone is bypassable — a chunked/no-Content-
+// Length request has no declared length to check, so it would reach `JSON.parse` unbounded. This reads
+// the body as a byte stream and enforces the REAL hard limit, canceling and rejecting the moment the
+// cap is exceeded — before any text is ever handed to JSON.parse. The Content-Length check upstream
+// stays as a cheap fast-path reject for the common case (a declared-oversized body never even starts
+// this read), but this is the actual guarantee.
+async function readBodyCapped(req: Request, maxBytes: number): Promise<string | typeof BODY_TOO_LARGE> {
+  if (!req.body) return ''
+  const reader = req.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      return BODY_TOO_LARGE
+    }
+    chunks.push(value)
+  }
+  const combined = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) { combined.set(chunk, offset); offset += chunk.byteLength }
+  return new TextDecoder().decode(combined)
+}
+
 // Allowed Origins for the DNS-rebinding defense. The Pages preview subdomain pattern varies per
 // deployment; the production custom origin is fixed and is the one real client-facing surface.
 function originAllowed(origin: string | null): boolean {
@@ -179,18 +215,25 @@ export const onRequest = async (context: any): Promise<Response> => {
   const admin = createClient(SUPABASE_URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // ---- 6. Token auth: opaque hash lookup, never a JWT. Malformed / unknown / revoked / expired /
-  //    deactivated-member all produce the IDENTICAL 401 — none of them may be distinguishable. ----
+  //    deactivated-member / non-machine-row all produce the IDENTICAL 401 — none of them may be
+  //    distinguishable. The RPC already filters on kind='machine' (thread 0029); the check here is a
+  //    deliberate belt-and-suspenders duplicate, not trust in the RPC alone — a mis-provisioned token
+  //    against a human row must be dead on arrival at BOTH layers. ----
   const token = authz.toLowerCase().startsWith('bearer ') ? authz.slice(7).trim() : ''
   if (!token) return unauthorized()
   const hash = await sha256Hex(token)
   const { data: verifyRows, error: verifyErr } = await admin.rpc('verify_machine_token', { p_hash: hash })
   const verified = Array.isArray(verifyRows) ? verifyRows[0] : verifyRows
-  if (verifyErr || !verified || !verified.active) return unauthorized()
+  if (verifyErr || !verified || !verified.active || verified.kind !== 'machine') return unauthorized()
   const actor = { id: verified.member_id as string, kind: verified.kind as string, scopes: (verified.scopes as string[]) ?? [] }
 
-  // ---- 7. Parse body (bounded object, single JSON-RPC message — no batching in this unit) ----
+  // ---- 7. Read + parse body (bounded object, single JSON-RPC message — no batching in this unit).
+  //    Real byte-capped streaming read (see readBodyCapped) — the Content-Length check in step 5 is
+  //    only a fast-path; this is what actually enforces the cap for chunked/no-Content-Length bodies. ----
+  const rawBody = await readBodyCapped(req, MAX_BODY_BYTES)
+  if (rawBody === BODY_TOO_LARGE) return json({ error: 'request body too large' }, 413)
   let body: any
-  try { body = await req.json() } catch { return rpcError(null, -32700, 'Parse error: invalid JSON') }
+  try { body = JSON.parse(rawBody) } catch { return rpcError(null, -32700, 'Parse error: invalid JSON') }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return rpcError(null, -32600, 'Invalid Request: body must be a single JSON-RPC object (batching not supported)')
   }

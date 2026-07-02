@@ -20,6 +20,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const ENDPOINT = `${BASE}/api/mcp`
@@ -68,6 +69,7 @@ let fullMachineId, fullToken
 let limitedMachineId, limitedToken
 let revokeMachineId, revokeToken
 let deactivatedMachineId, deactivatedToken
+let humanRowId, humanRowToken
 let projectId, projectName, secretEntryName
 
 async function setup() {
@@ -86,6 +88,15 @@ async function setup() {
   // a deactivated machine with an otherwise-valid, non-revoked, non-expired token
   deactivatedMachineId = await createMachine(`smoke-mcp-deactivated-${stamp}`, ['recall'], false)
   ;({ token: deactivatedToken } = await (async () => { const t = mintToken(); await insertToken(deactivatedMachineId, t.hash, 'deactivated'); return t })())
+
+  // thread 0029 item 3: a token minted against a kind='human' row (a mis-provisioning scenario) must
+  // be dead on arrival — same 401 as any other bad token. Only valid post-0026 (the auth.users FK is
+  // dropped there; pre-0026 this insert would itself fail, which is fine — this script only runs
+  // meaningfully post-apply anyway, since verify_machine_token doesn't exist before it).
+  humanRowId = randomUUID()
+  const { error: humanErr } = await admin.from('team_members').insert({ id: humanRowId, full_name: `smoke-mcp-human-${stamp}`, email: null, kind: 'human', scopes: ['recall'], active: true })
+  if (humanErr) throw new Error(`human row fixture: ${humanErr.message}`)
+  ;({ token: humanRowToken } = await (async () => { const t = mintToken(); await insertToken(humanRowId, t.hash, 'human-row'); return t })())
 
   // brief fixture: a throwaway project + linked resume memory (with an embedded secret, for the
   // redaction test) + a doc + an activity row (both FK-linked AND detail-linked, to prove both paths)
@@ -114,13 +125,14 @@ async function setup() {
 
 async function cleanup() {
   try {
-    for (const id of [fullMachineId, limitedMachineId, revokeMachineId, deactivatedMachineId]) {
+    // FK-drop-safe (thread 0029): cleanupMember deletes actor-keyed activity_log/usage_events/
+    // rate_limits, tries a real team_members delete, falls back to deactivate if something still
+    // blocks it, then best-effort deleteUser (harmless no-op for these — machines have no real auth
+    // user). machine_tokens isn't actor-keyed the same way, so it's deleted separately here.
+    for (const id of [fullMachineId, limitedMachineId, revokeMachineId, deactivatedMachineId, humanRowId]) {
       if (!id) continue
-      await admin.from('usage_events').delete().eq('actor_id', id)
-      await admin.from('rate_limits').delete().eq('actor_id', id)
-      await admin.from('activity_log').delete().eq('actor_id', id)
       await admin.from('machine_tokens').delete().eq('member_id', id)
-      await admin.from('team_members').delete().eq('id', id)
+      await cleanupMember(admin, id)
     }
     if (projectId) {
       await admin.from('activity_log').delete().eq('entity_id', projectId)
@@ -157,7 +169,10 @@ async function main() {
   const deactivatedRes = await call(deactivatedToken, rpcReq('initialize', {}))
   check('deactivated member (valid token) -> 401', deactivatedRes.status === 401)
 
-  const bodies = [noAuth, malformed, unknown, revokedRes, expiredRes, deactivatedRes].map((r) => JSON.stringify(r.json))
+  const humanRowRes = await call(humanRowToken, rpcReq('initialize', {}))
+  check('token minted against a kind=human row -> 401 (thread 0029 item 3)', humanRowRes.status === 401)
+
+  const bodies = [noAuth, malformed, unknown, revokedRes, expiredRes, deactivatedRes, humanRowRes].map((r) => JSON.stringify(r.json))
   check('all 401s are byte-identical (no oracle)', new Set(bodies).size === 1, bodies[0])
 
   const outOfScope = await call(limitedToken, rpcReq('tools/call', { name: 'fetch', arguments: { name: 'x' } }))
@@ -195,6 +210,22 @@ async function main() {
   const putRes = await fetch(ENDPOINT, { method: 'PUT', headers: { authorization: `Bearer ${fullToken}` } })
   check('PUT -> 405 with Allow header', putRes.status === 405 && (putRes.headers.get('allow') || '').includes('POST'))
 
+  const optionsRes = await fetch(ENDPOINT, { method: 'OPTIONS', headers: { authorization: `Bearer ${fullToken}` } })
+  check('OPTIONS -> 405 with Allow header (v1 is CLI/server-side only, no CORS preflight)', optionsRes.status === 405 && (optionsRes.headers.get('allow') || '').includes('POST'))
+
+  // thread 0029 blocker #2: Content-Length is trusted only as a fast-path; a chunked body with NO
+  // Content-Length header must still be rejected BEFORE JSON.parse once it exceeds the real cap.
+  // Node's fetch omits Content-Length when the body is an async generator (unknown length upfront),
+  // forcing chunked transfer-encoding — exactly the bypass class Aegis flagged.
+  async function* oversizedChunks() { const chunk = 'x'.repeat(8192); for (let i = 0; i < 10; i++) yield chunk } // 80KB > 64KB cap, no declared length
+  const chunkedOversized = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${fullToken}`, 'content-type': 'application/json', accept: 'application/json' },
+    body: oversizedChunks(),
+    duplex: 'half',
+  })
+  check('oversized chunked body (no Content-Length) -> 413 before parse', chunkedOversized.status === 413, `status=${chunkedOversized.status}`)
+
   const badAccept = await call(fullToken, rpcReq('initialize', {}), { accept: 'text/plain' })
   check('Accept: text/plain only -> 406', badAccept.status === 406)
 
@@ -211,6 +242,8 @@ async function main() {
   check('foreign Origin -> 403 pre-auth', foreignOrigin.status === 403)
   const foreignOriginBadToken = await call('bogus', rpcReq('initialize', {}), { origin: 'https://evil.example.com' })
   check('foreign Origin -> 403 even with an invalid token (proves pre-auth ordering)', foreignOriginBadToken.status === 403)
+  const claudeAiOrigin = await call(fullToken, rpcReq('initialize', {}), { origin: 'https://claude.ai' })
+  check('browser-hosted claude.ai Origin -> 403 (thread 0029 item 4: v1 is CLI/server-side only)', claudeAiOrigin.status === 403)
 
   const absentOrigin = await call(fullToken, rpcReq('initialize', {}))
   check('absent Origin -> served', absentOrigin.status === 200)
@@ -286,8 +319,12 @@ async function main() {
   // bucket isolation: a DIFFERENT machine's brief calls are unaffected by machine A's burst
   const otherMachineDuringBurst = await call(fullToken, rpcReq('tools/call', { name: 'brief', arguments: { project: projectName } }))
   check('rate-limit buckets are per-machine, not global', otherMachineDuringBurst.status === 200)
-  await admin.from('rate_limits').delete().eq('actor_id', bucketMachineId)
-  await admin.from('team_members').delete().eq('id', bucketMachineId)
+  // thread 0029 item 5: this previously deleted rate_limits + team_members but NOT usage_events,
+  // leaking orphaned smoke telemetry (usage_events.actor_id is ON DELETE SET NULL, so it wouldn't even
+  // error — just silently orphan). cleanupMember covers usage_events/rate_limits/activity_log + the
+  // FK-drop-safe team_members delete-then-deactivate fallback in one call.
+  await admin.from('machine_tokens').delete().eq('member_id', bucketMachineId)
+  await cleanupMember(admin, bucketMachineId)
 
   // ================= 6. TELEMETRY =================
   await new Promise((r) => setTimeout(r, 1500))

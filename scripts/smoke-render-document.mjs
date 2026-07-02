@@ -8,6 +8,7 @@
 // Run: node --env-file=.env.local scripts/smoke-render-document.mjs
 
 import { createClient } from '@supabase/supabase-js'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const URL = process.env.VITE_SUPABASE_URL
@@ -64,8 +65,10 @@ async function setup() {
   nonmemberUid = n.data.user.id
 }
 async function cleanup() {
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
-  if (nonmemberUid) await admin.auth.admin.deleteUser(nonmemberUid)
+  // FK-drop-safe (thread 0029): 0026 drops team_members -> auth.users cascade; this helper deletes
+  // dependent actor rows then tries a real delete, falling back to deactivate if something blocks it.
+  await cleanupMember(admin, memberUid)
+  await cleanupMember(admin, nonmemberUid)
 }
 
 async function main() {

@@ -1,6 +1,34 @@
 # 0029 — Sonnet instructions: 0027 post-build QC fix round
 
 - **Opened:** 2026-07-02 (Fable, after Aegis post-build QC `c0c94c5` = NOT APPROVED)
+- **Status:** ✅ **DONE (Sonnet 5, 2026-07-02).** All 5 items fixed. `npm run build` green (incl.
+  `tsconfig.functions.json`), all 239 keyless `mcp/test-*.mjs` green, `node --check` clean on every
+  changed script. Item 1's representative (`smoke-render-document.mjs`) run end-to-end against prod:
+  19/19, `team_members` count identical before/after (11 total / 4 inactive), zero residue. Committed
+  locally with explicit paths, no push (`mcp.ts` still hard-depends on unapplied migration `0026`).
+  Detail per item below. Next gate: Aegis re-QC.
+  1. **FK-drop-safe cleanup** — `scripts/lib/cleanup-member.mjs` (delete actor-keyed
+     activity_log/usage_events/rate_limits → try real delete → deactivate fallback → best-effort
+     deleteUser). All 7 affected scripts refactored to use it (the representative run live; the other
+     6 syntax-checked, not individually run, per "one representative before batch"). Also swept
+     `smoke-hosted-mcp.mjs`'s own cleanup (main loop + the separate rate-limit-bucket fixture) onto the
+     same helper — see item 5.
+  2. **Real body-size cap** — `functions/api/mcp.ts` now stream-reads the body via
+     `req.body.getReader()` with a hard 64KB byte accumulator, canceling and rejecting (413) the
+     moment it's exceeded, strictly before `JSON.parse`. Content-Length check kept as a cheap
+     fast-path in front. Added the required smoke case: an async-generator body (no Content-Length,
+     forces chunked transfer-encoding) over the cap → 413.
+  3. **`kind='machine'` enforced at both layers** — `0026_machine_accounts.sql`'s
+     `verify_machine_token` WHERE clause gained `and m.kind = 'machine'`; `functions/api/mcp.ts`
+     re-checks `verified.kind !== 'machine'` after the RPC call as a deliberate duplicate. Smoke: a
+     token minted against a `kind='human'` row → 401, included in the byte-identical-401-shape set.
+  4. **v1 = CLI/server-side only, documented** — `mcp.ts`'s header comment now states the scope
+     decision explicitly (no CORS/preflight; OPTIONS → 405; browser Origins incl. `claude.ai` → 403
+     pre-auth). Smoke additions: `OPTIONS` → 405 with `Allow`, and a `https://claude.ai` Origin → 403.
+  5. **Hosted-smoke telemetry leak fixed** — both cleanup sites in `smoke-hosted-mcp.mjs` (the main
+     fixture loop and the separate rate-limit-bucket machine) now route through `cleanupMember`, which
+     unconditionally deletes `usage_events` for the actor — the previous rate-limit-bucket cleanup
+     deleted `rate_limits` + `team_members` but never `usage_events`.
 - **Audience:** Sonnet 5. This doc is the complete work order — no other context needed beyond the
   two referenced sections of thread 0027.
 - **Ground rules:** branch `main` is 6+ commits ahead of origin and **stays unpushed**. Migration

@@ -8,6 +8,7 @@
 // Reads: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_PUBLISHABLE_KEY.
 
 import { createClient } from '@supabase/supabase-js'
+import { cleanupMember } from './lib/cleanup-member.mjs'
 
 const BASE = process.env.SMOKE_BASE || 'https://project-mnemosyne.pages.dev'
 const URL = process.env.VITE_SUPABASE_URL
@@ -55,10 +56,10 @@ async function setup() {
 }
 
 async function cleanup() {
-  // delete smoke activity_log rows first (FK actor_id -> team_members has no cascade), then the users (cascade member row)
-  if (memberUid) await admin.from('activity_log').delete().eq('actor_id', memberUid)
-  if (memberUid) await admin.auth.admin.deleteUser(memberUid)
-  if (nonmemberUid) await admin.auth.admin.deleteUser(nonmemberUid)
+  // FK-drop-safe (thread 0029): deletes actor-keyed rows (incl. this script's own activity_log test
+  // rows), tries a real delete, falls back to deactivate.
+  await cleanupMember(admin, memberUid)
+  await cleanupMember(admin, nonmemberUid)
 }
 
 async function run() {

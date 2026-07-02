@@ -65,12 +65,15 @@ create index if not exists machine_tokens_member_id_idx on public.machine_tokens
 
 -- ── 4. verify_machine_token — the sole read+write path for token verification. Single UPDATE...FROM
 --    statement (no read-then-write race, same atomicity discipline as rate_take/log_activity): matches
---    a non-revoked, non-expired hash, bumps last_used_at, and returns the joined member row in one
---    shot. Returns EMPTY on any miss (bad shape, unknown hash, revoked, expired) — never raises, so a
---    bad token produces no oracle distinguishing "doesn't exist" from "revoked" from "expired". The
---    caller (functions/api/mcp.ts) additionally checks the returned `active` flag itself — a
---    deactivated member's token must look identical (401) to any other invalid-token case at the HTTP
---    layer, so that check is NOT folded into this RPC's WHERE clause. ─────────────────────────────────
+--    a non-revoked, non-expired hash on a kind='machine' row, bumps last_used_at, and returns the
+--    joined member row in one shot. Returns EMPTY on any miss (bad shape, unknown hash, revoked,
+--    expired, OR a token somehow minted against a non-machine row) — never raises, so a bad token
+--    produces no oracle distinguishing any of those cases from each other. The `kind = 'machine'` guard
+--    (thread 0029) means a mis-provisioned token against a human row is dead on arrival here; mcp.ts
+--    ALSO re-checks `kind` after verification as a belt-and-suspenders layer, in case a future caller
+--    of this RPC ever changes the filter. The caller additionally checks the returned `active` flag
+--    itself — a deactivated member's token must look identical (401) to any other invalid-token case at
+--    the HTTP layer, so that check is NOT folded into this RPC's WHERE clause. ───────────────────────
 create or replace function public.verify_machine_token(p_hash text)
 returns table (
   member_id uuid,
@@ -92,6 +95,7 @@ begin
     and t.member_id = m.id
     and t.revoked_at is null
     and (t.expires_at is null or t.expires_at > now())
+    and m.kind = 'machine'   -- thread 0029: a mis-provisioned token against a human row must be dead on arrival
   returning m.id, m.kind, m.scopes, m.active;
 end $$;
 
