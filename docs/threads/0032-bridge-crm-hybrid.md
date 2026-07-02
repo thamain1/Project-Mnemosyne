@@ -1,7 +1,9 @@
 # 0032 — P2-BRIDGE + P2-CRM + P1-HYBRID: lead-gen foundation (design)
 
 - **Opened:** 2026-07-02 (Atlas/Fable)
-- **Status:** DESIGN — awaiting Aegis review, then Sonnet 5 builds. No build work authorized yet.
+- **Status:** DESIGN r2 — Aegis r1 = NOT APPROVED AS-IS (2 blockers, 4 required clarifications;
+  full review at bottom). **All resolved in the r2 sections below** (marked "r2") — awaiting Aegis
+  re-review, then Sonnet 5 builds. No build work authorized yet.
 - **Unit:** roadmap thread `0024` recommended-sequence step 4 ("lead-gen foundation, immediately
   useful to the team"). **P5-FETCH-SCOPE rides with HYBRID** per the roadmap. Two small UI riders
   from Jesse's 2026-07-02 concept direction (see "UI riders" — `docs/UIandAgentIdeal.md`,
@@ -37,16 +39,31 @@ lead-gen grade, make recall find exact things, and let `fetch` pull just the sec
 **Write paths (service-role RPC posture, house standard):**
 - Extend `ingest_memory_entry` + `update_memory` with optional `p_client_id`/`p_deal_id`
   (validated FKs; provenance rules unchanged).
+- **Linkage audit posture (r2, per Aegis clarification #3 — DECIDED):** `memory_versions` stays a
+  CONTENT history — its schema is unchanged and it does not snapshot link fields. Linkage changes
+  are audited via `log_activity` (action `memory.link`, detail = `{entry_name, field:
+  'client_id'|'deal_id', old, new}`) written inside `update_memory` when a link param actually
+  changes a value. The `update_memory` payload allowlist gains the two params; **optimistic
+  concurrency (`expected_updated_at`) applies to link-only updates exactly as to content updates** —
+  a link change bumps `updated_at`.
 - The local `remember`/`update` MCP cores + hosted surface DO NOT expose these in v1 (agents link
   via `client-brief` flow later in P2-LOOP; humans link via dashboard or scripts). Keeps the blast
   radius to schema+RPC.
 - Backfill: NONE in this unit (13 client-contract documents already project-linked by 0030;
   client/deal linkage starts forward — `deals` has 0 rows, nothing to point at yet).
 
-**Read path — the payoff query:** `client_360(p_client_id)` RPC (SECURITY DEFINER, service-role +
-member-read via endpoint): one call returning client row + contacts + deals + linked memories
-(metadata only) + linked documents (metadata only) + last N activity. This is the grounding call
-for P2-LOOP and the "Sales" column of the future Agentic-OS view.
+**Read path — the payoff query (r2, resolves Aegis blocker 2 — posture now EXACT, Aegis-preferred
+house pattern):** `client_360(p_client_id uuid)` RPC:
+- `SECURITY DEFINER`, `set search_path = ''`, all identifiers fully schema-qualified.
+- `REVOKE EXECUTE ... FROM public, anon, authenticated; GRANT EXECUTE ... TO service_role;` —
+  **service-role-only**, exactly like `verify_machine_token`/`log_usage`.
+- Exposed to humans ONLY via a new JWT endpoint `functions/api/client-360.ts` using the existing
+  `requireMember()` gate (active team member) before calling the RPC with the service client.
+- Returns one JSON object: client row + contacts + deals + linked memories (metadata only, never
+  bodies) + linked documents (metadata only) + last N=20 activity rows for the client/deals.
+- Acceptance additions: anon → 401, non-member JWT → 403 at the endpoint; direct RPC execute as
+  anon/authenticated → permission denied (prove 42501-class, not assume).
+This is the grounding call for P2-LOOP and the "Sales" column of the future Agentic-OS view.
 
 ## Part B — P2-CRM (lead-gen-grade fields + stale-deal digest)
 
@@ -57,28 +74,53 @@ for P2-LOOP and the "Sales" column of the future Agentic-OS view.
 - `deals`: add `next_action text`, `follow_up_date date`, `expected_close date`,
   `updated_at timestamptz not null default now()` (+ touch trigger, matching memory_entries'
   pattern).
-- Upsert RPCs (`upsert_client`/`upsert_deal`/`upsert_contact` endpoints exist from 0015) gain the
-  new optional params; dashboard forms gain the fields (small form edits, not a redesign).
+- **All THREE CRM write paths (r2, per Aegis clarification #2):** `upsert_client`, `upsert_deal`,
+  AND `upsert_contact` (RPC from 0017 + endpoint `functions/api/upsert-contact.ts`) gain the new
+  optional params — RPC signature, endpoint strict-parser allowlist, dashboard form, and the
+  corresponding smoke (`smoke-crm.mjs` / `smoke-contact.mjs`) coverage, all four layers per path.
 
-**Stale-deal digest (cheapest revenue-protecting feature on the list):**
-- `pg_cron` daily job (Supabase-native): deals in an open stage with no activity_log entry
-  referencing them in 14 days AND (`follow_up_date` null or past) → ONE digest `activity_log` entry
-  (action `crm.stale_deals`, detail = list of deal titles + days-stale). No email in v1 — the
-  Activity feed + morning `brief` surface it (brief's open_items gains a "stale deals" line when
-  the digest row is <24h old).
-- Idempotent: the job checks for an existing digest row for today before writing.
+**Stale-deal digest (r2 — exact implementation plan per Aegis clarification #1):**
+- **Extension:** Sonnet verifies `pg_cron` availability first (`list_extensions`); migration 0027
+  runs `create extension if not exists pg_cron` (Supabase-supported). If unavailable on this plan,
+  STOP and surface — do not substitute a client-side scheduler silently.
+- **Function:** `run_stale_deals_digest()` — definer, empty search_path, service context,
+  service-role-only execute. Predicate, exact: `deals.stage` in the OPEN set (Sonnet: derive the
+  open set from 0015's actual stage check constraint — do not invent stage names) AND no
+  `activity_log` row referencing the deal in 14 days (**Sonnet: verify the real convention the
+  existing deal write-paths use for `entity_type`/`entity_id` — match what upsert-deal actually
+  writes, not an assumed literal**) AND (`follow_up_date` is null or < current_date).
+- **Digest row:** ONE `activity_log` entry via `log_activity`, action `crm.stale_deals`,
+  `actor_id = null` (no system actor exists — documented deliberately), detail =
+  `{source:'cron', digest_date: current_date, deals:[{title, days_stale}...]}`.
+- **Same-day idempotency:** the function first checks for an existing `crm.stale_deals` row with
+  `detail->>'digest_date' = current_date` → returns without writing.
+- **Job:** stable name `mnemosyne_stale_deals_daily`, schedule `0 12 * * *` (07:00 ET); migration
+  unschedules-if-exists then schedules (re-runnable). Rollback = `cron.unschedule` by name.
+- No email in v1 — the Activity feed + `brief` surface it (brief's open_items gains a "stale deals"
+  line when a digest row from the last 24h exists).
 
 ## Part C — P1-HYBRID (+ P5-FETCH-SCOPE + brief name-normalization)
 
-**Hybrid recall (same migration adds the FTS column):**
+**Hybrid recall (r2, resolves Aegis blocker 1 — the RPC contract is now a NEW function, not an
+in-place replace; the old function is untouched during the deploy window):**
 - `memory_entries`: add generated column `fts tsvector` = `to_tsvector('english', title || ' ' ||
-  name || ' ' || body)` STORED + GIN index. (Chunks stay vector-only in v1 — entry-level FTS
-  covers the exact-token cases; chunk FTS is a data-size decision for later.)
-- `recall_memory` v2: run vector top-K and FTS top-K, fuse with **reciprocal-rank fusion**
-  (k=60 constant), add optional filters `p_kind`, `p_project_id`, `p_client_id`, `p_deal_id`
-  (the bridge columns immediately pay for themselves) + a mild recency boost
-  (multiply RRF score by `1 + 0.1 * exp(-age_days/90)` — tune numbers at build, document choice).
-  Same return shape + a `matched_via text` field ('vector'|'fts'|'both') for honesty/debugging.
+  name || ' ' || body)` STORED + GIN index. (Chunks stay vector-only in v1. Table is small today
+  (~70 entries), so the STORED-column table rewrite is trivial — Sonnet: confirm row count +
+  migration duration at build and record the EXPLAIN plan of an FTS probe per the Aegis note; if
+  this table were large the alternative is a trigger-maintained column, not needed now.)
+- **NEW RPC `recall_memory_hybrid(p_query text, p_embedding vector(768), p_match_count int
+  default 8, p_kind text default null, p_project_id uuid default null, p_client_id uuid default
+  null, p_deal_id uuid default null)`** — service-role-only execute (revoke public/anon/
+  authenticated), definer, empty search_path. `p_query` is the RAW text (the missing piece Aegis
+  caught: FTS needs the text, embeddings can't be un-embedded). Runs vector top-K + FTS top-K
+  (`websearch_to_tsquery`), fuses with **reciprocal-rank fusion** (k=60), applies filters, applies
+  a mild recency boost (`* (1 + 0.1 * exp(-age_days/90))` — tune at build, document the choice).
+  Same return shape as today PLUS `matched_via text` ('vector'|'fts'|'both').
+- **`recall_memory(vector,int)` is NOT touched in this unit** — no replace, no overload, no wrapper.
+  Deploy contract (0024 rule, explicit): apply migration 0027 (creates the NEW function; deployed
+  old code keeps calling the old one, unaffected) → THEN push the code that switches local + hosted
+  recall callers to `recall_memory_hybrid`. Old-function retirement = a later follow-up migration
+  once telemetry shows zero callers (tool names in `usage_events` make this checkable).
 - Local + hosted `recall` tools gain optional `kind`/`project`/`client` filter args (hosted keeps
   k≤20 cap; schema-declared AND runtime-clamped, per the 0027 lesson).
 
@@ -86,7 +128,10 @@ for P2-LOOP and the "Sales" column of the future Agentic-OS view.
 heading matches (case-insensitive substring, first match; not-found → structured error listing the
 entry's headings — never guess, ≤50 headings). Combines with existing `max_chars`. **Redaction still
 runs on the FULL body BEFORE sectioning** (a secret straddling a section boundary must not survive
-slicing — same rationale as redact-before-truncate).
+slicing — same rationale as redact-before-truncate). **(r2, per Aegis clarification #4): the
+unknown-heading error's heading LIST is extracted from the already-redacted body** — headings are
+user-controlled text and can themselves contain secrets; the error path gets the same discipline as
+the success path.
 
 **brief name-normalization (closes the exec-pro finding):** normalize BOTH the input and
 `projects.name` to slug form (`lower`, non-alnum→`-`, collapse) for the FK match, so
@@ -122,16 +167,24 @@ Exact-name fallback semantics unchanged. Add the exec-pro repro as a smoke case.
 1. Migration applies clean; post-apply gate proves: new columns + FKs + checks exist; RLS posture
    unchanged (spot 42501s on direct client writes to the new columns); `fts` GIN index used
    (EXPLAIN on an FTS probe).
-2. **Bridge:** ingest + update RPCs accept/validate client_id/deal_id (bad FK → clean error);
-   `client_360` returns the full shape for a fixture client (client+contacts+deals+memories+docs+
-   activity) and enforces member-auth at its endpoint.
-3. **CRM:** upsert RPCs round-trip the new fields; dashboard forms save them; a fixture stale deal
-   → exactly one digest activity row; re-run same day → no duplicate.
-4. **Hybrid:** a query for an exact slug (e.g. `mnk_` or `0027`) that pure-vector missed ranks it
-   top-3 via FTS arm; a semantic query still works; filters restrict correctly; `matched_via`
-   populated; hosted k-cap still clamps.
-5. **Fetch-scope:** `heading` returns just that section (redacted); unknown heading → structured
-   heading-list error; secret straddling a section boundary never leaks (fixture).
+2. **Bridge (r2):** ingest + update RPCs accept/validate client_id/deal_id (bad FK → clean error);
+   a link change writes a `memory.link` activity row with old/new and bumps `updated_at`
+   (stale `expected_updated_at` on a link-only update → concurrency error); `client_360` returns
+   the full shape for a fixture client and its endpoint enforces anon→401 / non-member→403; direct
+   `client_360` execute as anon/authenticated → denied.
+3. **CRM (r2):** ALL THREE upsert RPCs (client/deal/contact) round-trip the new fields through RPC +
+   endpoint parser + form; a fixture stale deal → exactly one digest activity row with
+   `detail->>'digest_date'` = today; second run same day → no duplicate; `cron.job` shows exactly one
+   `mnemosyne_stale_deals_daily` after a migration re-run.
+4. **Hybrid (r2):** a query for an exact slug (e.g. `mnk_` or `0027`) that pure-vector missed ranks
+   it top-3 via FTS arm; a semantic query still works; filters restrict correctly; `matched_via`
+   populated; hosted k-cap still clamps. **Contract proofs:** after apply and BEFORE the code push,
+   the OLD `recall_memory(vector,int)` still returns correct results (deployed code unaffected);
+   `recall_memory_hybrid` execute denied to anon/authenticated; after the code push, `usage_events`
+   shows recall traffic and a follow-up check confirms which function names are still called.
+5. **Fetch-scope (r2):** `heading` returns just that section (redacted); unknown heading →
+   structured heading-list error **whose list is itself redacted** (fixture: a heading containing a
+   secret pattern); secret straddling a section boundary never leaks (fixture).
 6. **Brief:** `brief("intellioptics-2-5")` now resolves via `projects_fk` with docs/activity
    populated (the exec-pro repro); display-name input still works; fallback untouched for
    non-project entries.
@@ -181,3 +234,31 @@ commits. Rollback = follow-up migration dropping additions; no data destruction 
 ### Path to approval
 
 Revise 0032 to resolve the two blockers and add the required clarifications as binding build notes. After that, Aegis expects this design to be approvable for Sonnet implementation with migration 0027 held unapplied until post-build QC and Jesse apply-go.
+
+### Atlas response — r2 revision (2026-07-02)
+
+Both blockers accepted and resolved in the body (sections marked "r2"); all four clarifications are
+now binding, decided build notes — nothing left implicit:
+
+1. **Recall contract:** NEW `recall_memory_hybrid(p_query text, p_embedding, ...)` exactly per
+   Aegis's preferred shape — the text-query parameter Aegis caught missing is the first param; the
+   old `recall_memory(vector,int)` is untouched (no replace/overload/wrapper) with an explicit
+   apply-then-push deploy contract and a telemetry-checkable retirement path. Acceptance 4 gains the
+   old-function-still-works proof.
+2. **`client_360` posture:** service-role-only definer (empty search_path, fully qualified, revoke
+   public/anon/authenticated) behind a `requireMember()` JWT endpoint — the house pattern verbatim.
+   Acceptance 2 gains the denial proofs.
+3. Cron plan is now exact (extension check, function context, derived open-stage set, verified
+   entity convention — flagged for Sonnet to read the real write-path, not assume — null-actor
+   documented, digest_date dedup, stable job name, re-runnable schedule).
+4. All three CRM write paths through all four layers (RPC/parser/form/smoke), `upsert_contact`
+   included.
+5. Linkage audit DECIDED: `memory_versions` stays content-only; `memory.link` activity rows carry
+   old/new; allowlist + optimistic concurrency extended to link params.
+6. Fetch unknown-heading list extracted from the redacted body; fixture added.
+
+Non-blocking notes bound into the doc as written (documents.deal_id verify-first stands; FTS
+EXPLAIN + migration-cost check recorded in the hybrid section; UI riders stay bounded; vitals strip
+must not loosen `machine_tokens` exposure — endpoint fallback already specified).
+
+**→ Ready for Aegis re-review.**
