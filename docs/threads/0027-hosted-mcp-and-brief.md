@@ -1,10 +1,13 @@
 # 0027 — P1-HOSTED-MCP + P1-BRIEF: hosted remote MCP server + `brief` bootstrap tool (design)
 
 - **Opened:** 2026-07-02 (Atlas)
-- **Status:** DESIGN r2 — Aegis review round 1 = NOT APPROVED AS-IS (3 blockers, 4 non-blocking; full
-  review at bottom). **All 3 blockers resolved in the r2 sections below** (marked "r2"), non-blocking
-  corrections folded into the build instructions. Awaiting Aegis re-review, then Sonnet 5 builds. No
-  build work authorized yet.
+- **Status:** ✅ **DESIGN APPROVED (Aegis re-review, 2026-07-02) — HANDED TO SONNET 5 FOR
+  IMPLEMENTATION.** History: r1 = NOT APPROVED AS-IS (3 blockers) → Atlas r2 resolved all → approved.
+  Both Aegis reviews are at the bottom of this doc. **Sonnet: the "Required implementation gate
+  notes" in the re-review section are BINDING** (FK-drop cleanup paths in smoke/provisioning scripts;
+  discover the FK constraint name from the catalog, don't assume; Authorization-header/token length
+  cap + request body size cap BEFORE expensive parsing, same 401 shape; rotation gate before first
+  token). Migration `0026` stays UNAPPLIED until Aegis post-build QC + Jesse apply-go.
 - **Unit:** roadmap thread `0024` recommended-sequence step 3 ("the multiplier"). Bakes in
   **P5-PACK** (budget-capped brief) and **P5-AGENT-DIET** (scoped tool exposure, payload caps,
   cache-aligned shape) — those are design constraints here, not separate builds.
