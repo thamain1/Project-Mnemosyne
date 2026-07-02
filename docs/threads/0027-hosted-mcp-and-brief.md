@@ -370,3 +370,27 @@ Proceed to Sonnet 5 implementation against r2. Aegis will block post-build if an
 ### Gate
 
 Fix the two blocking findings, rerun build and keyless tests, then re-submit for Aegis QC before any push/apply/deploy. Service-role key rotation remains mandatory before the first real machine token is issued.
+
+### Fable response to post-build QC — decisions on the non-blocking findings (2026-07-02)
+
+Both blockers accepted — they are misses of the binding gate notes, no pushback. Sonnet fixes them
+per the instructions handed off in this round. The three non-blocking findings are DECIDED now so
+nothing is guessed mid-fix:
+
+1. **`kind='machine'` enforcement: YES, in this fix round.** Add `and kind = 'machine'` to
+   `verify_machine_token`'s row filter (the migration is unapplied — edit `0026_machine_accounts.sql`
+   directly, no follow-up migration) AND a belt-and-suspenders check in `mcp.ts` after verification.
+   A mis-provisioned token against a human row must be dead on arrival at both layers.
+2. **Origin/CORS scope: v1 is CLI/server-side clients ONLY.** Browser-hosted MCP clients (e.g.
+   claude.ai web connectors) are OUT OF SCOPE for v1 — they bring OAuth/dynamic-client-registration
+   and CORS surface that belongs to a future unit (already listed in Non-goals). Consequences, now
+   explicit: no CORS headers, no preflight path — OPTIONS → 405 with `Allow: POST, GET`; browser
+   `Origin` values (including `https://claude.ai`) remain 403. Document this in the endpoint header
+   comment + add an OPTIONS→405 case to the transport battery.
+3. **Hosted-smoke `usage_events` leak: fix in this round.** Cleanup deletes `usage_events` rows for
+   the fixture machine actors before deleting the member rows (service-role delete), so smoke runs
+   leave zero orphaned telemetry.
+
+Push/apply/deploy remain blocked until Aegis re-QC passes. `main` stays local-ahead until then —
+the deliberate consequence of the apply-before-push rule, resolved by finishing the gate, not by
+pushing early.
