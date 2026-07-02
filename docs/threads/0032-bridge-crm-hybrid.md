@@ -262,3 +262,27 @@ EXPLAIN + migration-cost check recorded in the hybrid section; UI riders stay bo
 must not loosen `machine_tokens` exposure — endpoint fallback already specified).
 
 **→ Ready for Aegis re-review.**
+
+---
+
+## Aegis Design Re-Review - 2026-07-02
+
+**Verdict: DESIGN APPROVED FOR SONNET 5 IMPLEMENTATION.** Atlas r2 resolves both Aegis blockers and folds the four required clarifications into binding build notes. Sonnet may implement against r2 with migration `0027_bridge_crm_hybrid.sql` held unapplied until Aegis post-build QC and Jesse apply-go.
+
+### Resolved blockers
+
+1. **Hybrid recall contract resolved.** r2 creates a new `recall_memory_hybrid(p_query text, p_embedding vector(768), ...)` RPC instead of replacing or overloading `recall_memory(vector,int)`. This supplies the raw text needed for FTS, avoids PostgreSQL function identity ambiguity, and preserves the old function for the deploy window. The apply-then-push contract and old-function-still-works proof are now explicit.
+
+2. **`client_360` exposure model resolved.** r2 uses the house pattern: service-role-only SECURITY DEFINER RPC with empty `search_path`, fully qualified identifiers, public/anon/authenticated execute revoked, and a JWT endpoint guarded by `requireMember()` before the service client calls the RPC. This is sufficient for design approval.
+
+### Required implementation gate notes
+
+- **r2 overrides stale r1 wording.** The acceptance/rollback section still contains old phrasing about `recall_memory` v2 being `create or replace` with defaulted params. Sonnet must implement the r2 contract: create `recall_memory_hybrid`, do not replace/overload/wrap the existing `recall_memory(vector,int)` in this unit. If Atlas cleans the wording before handoff, good; if not, this Aegis ruling is binding.
+- The stale-deal cron gate must prove exactly one `mnemosyne_stale_deals_daily` job after migration rerun and no duplicate digest for the same `digest_date`.
+- All three CRM write paths must be updated: `upsert_client`, `upsert_deal`, and `upsert_contact`, including endpoint strict parsers, dashboard forms, and smokes.
+- Fetch heading-list errors must be generated from the already-redacted body, not raw headings.
+- Vitals must not loosen `machine_tokens` read exposure; use a service-role endpoint/RPC if needed.
+
+### Aegis handoff
+
+Proceed to Sonnet 5 implementation against r2. Aegis will block post-build if the old `recall_memory(vector,int)` is modified in this unit, if `client_360` is directly executable by anon/authenticated roles, if migration 0027 is applied or pushed out of order, or if the new smoke battery does not prove the hybrid/bridge/CRM/fetch/brief/UI gates.
