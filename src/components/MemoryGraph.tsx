@@ -3,12 +3,20 @@
 // entry→hub, [[links]] between entries, and code-snippet/applies-to → other projects' hubs (surfaces the
 // cross-project code library). Click an entry → the existing detail modal. Rendered via react-force-graph-2d
 // (canvas). Read-only; derives everything from data already loaded (no schema, no new fetch).
+//
+// Thread 0032 UI rider 1: continuous idle motion (never fully sleeps) + directed link particles on
+// hover/selection + smooth zoom-to-node on click, PLUS bridge edges (memory→client, memory→deal) as new
+// edge/node types with distinct colors — the CRM linkage from P2-BRIDGE (migration 0027) makes the
+// cloud structurally richer, which is the actual "alive" effect, not just the animation tuning alone.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { entryGroupKey, groupLabel } from '../lib/memoryGroups'
 
-type Entry = { name: string; title: string | null; kind: string; tags?: string[] | null; links?: string[] | null }
+type Entry = {
+  name: string; title: string | null; kind: string; tags?: string[] | null; links?: string[] | null
+  client_id?: string | null; deal_id?: string | null
+}
 
 const KIND_NODE: Record<string, string> = {
   project: '#60a5fa',   // blue
@@ -17,20 +25,33 @@ const KIND_NODE: Record<string, string> = {
   user: '#a78bfa',      // violet
 }
 const HUB_COLOR = '#64748b'      // slate-500
+const CLIENT_COLOR = '#f472b6'   // pink-400 — bridge target: CRM client
+const DEAL_COLOR = '#fb923c'     // orange-400 — bridge target: CRM deal
 const LINK_COLOR: Record<string, string> = {
   hub: 'rgba(100,116,139,0.25)',      // entry → its cluster hub (faint slate)
   link: 'rgba(96,165,250,0.45)',      // [[links]] between entries (blue)
   applies: 'rgba(52,211,153,0.5)',    // code reuse → another project's hub (emerald)
+  client: 'rgba(244,114,182,0.55)',   // memory → linked CRM client (pink) — P2-BRIDGE
+  deal: 'rgba(251,146,60,0.55)',      // memory → linked CRM deal (orange) — P2-BRIDGE
 }
 
 function appliesTo(tags: string[] | null | undefined): string[] {
   return (tags ?? []).filter((t) => t.startsWith('applies-to:')).map((t) => t.slice('applies-to:'.length)).filter(Boolean)
 }
 
-export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (name: string) => void }) {
+export default function MemoryGraph({
+  rows, onOpen, clientNames, dealNames,
+}: {
+  rows: Entry[]
+  onOpen: (name: string) => void
+  clientNames?: Record<string, string>
+  dealNames?: Record<string, string>
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const fgRef = useRef<any>(null)
   const [width, setWidth] = useState(800)
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!wrapRef.current) return
@@ -39,12 +60,16 @@ export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (
     return () => ro.disconnect()
   }, [])
 
+  const hasBridge = useMemo(() => rows.some((r) => r.client_id || r.deal_id), [rows])
+
   const data = useMemo(() => {
     const names = new Set(rows.map((r) => r.name))
     const nodes: any[] = []
     const links: any[] = []
     const hubs = new Set<string>()
     const addHub = (key: string) => { if (!hubs.has(key)) { hubs.add(key); nodes.push({ id: `hub:${key}`, label: groupLabel(key), isHub: true, color: HUB_COLOR }) } }
+    const bridgeNodes = new Set<string>()
+    const addBridge = (id: string, label: string, color: string) => { if (!bridgeNodes.has(id)) { bridgeNodes.add(id); nodes.push({ id, label, isHub: true, color }) } }
 
     for (const r of rows) {
       const key = entryGroupKey(r)
@@ -52,6 +77,16 @@ export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (
       const snippet = (r.tags ?? []).includes('code-snippet')
       nodes.push({ id: r.name, label: r.title || r.name, kind: r.kind, snippet, color: KIND_NODE[r.kind] ?? '#94a3b8' })
       links.push({ source: r.name, target: `hub:${key}`, kind: 'hub' })
+      if (r.client_id) {
+        const cid = `client:${r.client_id}`
+        addBridge(cid, clientNames?.[r.client_id] ?? 'Client', CLIENT_COLOR)
+        links.push({ source: r.name, target: cid, kind: 'client' })
+      }
+      if (r.deal_id) {
+        const did = `deal:${r.deal_id}`
+        addBridge(did, dealNames?.[r.deal_id] ?? 'Deal', DEAL_COLOR)
+        links.push({ source: r.name, target: did, kind: 'deal' })
+      }
     }
     // [[links]] between entries (only when the target entry is in view)
     const seen = new Set<string>()
@@ -71,12 +106,17 @@ export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (
       }
     }
     return { nodes, links }
-  }, [rows])
+  }, [rows, clientNames, dealNames])
 
   useEffect(() => {
     const t = setTimeout(() => { try { fgRef.current?.zoomToFit(400, 50) } catch { /* noop */ } }, 600)
     return () => clearTimeout(t)
   }, [data])
+
+  function focusNode(n: any) {
+    setSelectedId(n.id)
+    try { fgRef.current?.centerAt(n.x, n.y, 600); fgRef.current?.zoom(n.isHub ? 3 : 4, 600) } catch { /* noop */ }
+  }
 
   return (
     <div ref={wrapRef} className="rounded-lg border border-slate-800 bg-slate-950 overflow-hidden">
@@ -86,16 +126,34 @@ export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (
         width={width}
         height={560}
         backgroundColor="#020617"
-        cooldownTicks={120}
+        // idle motion: low alpha decay + a near-zero alpha floor means the simulation keeps gently
+        // drifting instead of freezing solid — cooldownTime effectively disabled (a huge ceiling) so it
+        // never fully sleeps, matching the "alive" node-cloud direction.
+        d3AlphaDecay={0.012}
+        d3AlphaMin={0.0008}
+        d3VelocityDecay={0.28}
+        cooldownTime={Infinity}
         nodeLabel={(n: any) => (n.isHub ? `${n.label} (group)` : `${n.label} · ${n.kind}`)}
         linkColor={(l: any) => LINK_COLOR[l.kind] ?? LINK_COLOR.hub}
-        linkWidth={(l: any) => (l.kind === 'link' || l.kind === 'applies' ? 1 : 0.5)}
-        onNodeClick={(n: any) => { if (!n.isHub) onOpen(n.id); else { fgRef.current?.centerAt(n.x, n.y, 500); fgRef.current?.zoom(3, 500) } }}
+        linkWidth={(l: any) => (l.kind === 'link' || l.kind === 'applies' || l.kind === 'client' || l.kind === 'deal' ? 1 : 0.5)}
+        // directed link particles flow on hover/selection only — a static graph would be noisy with
+        // particles everywhere; this makes the "alive" cue purposeful (draws the eye to what you're
+        // looking at) rather than decorative.
+        linkDirectionalParticles={(l: any) => {
+          const id = hoverId ?? selectedId
+          if (!id) return 0
+          return l.source?.id === id || l.target?.id === id || l.source === id || l.target === id ? 3 : 0
+        }}
+        linkDirectionalParticleWidth={1.6}
+        linkDirectionalParticleSpeed={0.006}
+        onNodeHover={(n: any) => setHoverId(n ? n.id : null)}
+        onNodeClick={(n: any) => { focusNode(n); if (!n.isHub) onOpen(n.id) }}
         nodeCanvasObject={(n: any, ctx: CanvasRenderingContext2D, scale: number) => {
           const r = n.isHub ? 5.5 : 3.5
           ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI)
           ctx.fillStyle = n.color; ctx.fill()
           if (n.snippet) { ctx.strokeStyle = '#6ee7b7'; ctx.lineWidth = 1.2; ctx.stroke() }
+          if (n.id === selectedId) { ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1.5; ctx.stroke() }
           if (n.isHub || scale > 2.4) {
             ctx.font = `${n.isHub ? 7 : 5}px Inter, system-ui, sans-serif`
             ctx.fillStyle = n.isHub ? '#e2e8f0' : '#94a3b8'
@@ -114,7 +172,9 @@ export default function MemoryGraph({ rows, onOpen }: { rows: Entry[]; onOpen: (
         <span className="flex items-center gap-1"><Dot c="#fbbf24" /> feedback</span>
         <span className="flex items-center gap-1"><Dot c="#a78bfa" /> user</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full border border-emerald-300" /> code snippet</span>
-        <span className="ml-auto">click a node to open · scroll to zoom · drag to pan</span>
+        {hasBridge && <span className="flex items-center gap-1"><Dot c={CLIENT_COLOR} /> CRM client</span>}
+        {hasBridge && <span className="flex items-center gap-1"><Dot c={DEAL_COLOR} /> CRM deal</span>}
+        <span className="ml-auto">click a node to open + zoom · hover to trace links · scroll to zoom · drag to pan</span>
       </div>
     </div>
   )

@@ -14,6 +14,8 @@ type Entry = {
   updated_at: string
   tags?: string[] | null
   links?: string[] | null
+  client_id?: string | null
+  deal_id?: string | null
 }
 type Hit = Entry & { similarity: number; matched_via?: string }
 
@@ -54,19 +56,37 @@ export default function Memories() {
   const [body, setBody] = useState('')
   const [bodyLoading, setBodyLoading] = useState(false)
 
+  // bridge node labels (thread 0032 P2-BRIDGE) — only populated once client_id/deal_id are actually
+  // present on at least one row, so this costs nothing on a pre-migration-0027 DB.
+  const [clientNames, setClientNames] = useState<Record<string, string>>({})
+  const [dealNames, setDealNames] = useState<Record<string, string>>({})
+
   useEffect(() => {
-    // Select `tags` if the column exists (migration 0011); gracefully fall back if it doesn't yet, so the
-    // frontend is decoupled from the migration — tag features (exact grouping, repo badge, code library)
-    // light up automatically once 0011 + backfill land, with no redeploy.
+    // Select `tags`/`client_id`/`deal_id` if the columns exist (migrations 0011/0027); gracefully fall
+    // back if they don't yet, so the frontend is decoupled from the migration — features light up
+    // automatically once each lands, with no redeploy. Tiered: full -> pre-0027 -> pre-0011.
     const base = 'name, title, kind, source_path, updated_at, links'
     ;(async () => {
       const load = (cols: string) =>
         supabase.from('memory_entries').select(cols).order('updated_at', { ascending: false })
-      let res: { data: unknown; error: { message: string } | null } = await load(`${base}, tags`)
-      if (res.error) res = await load(base) // tags column not present yet (pre-0011)
-      if (res.error) setErr(res.error.message)
-      else setRows((res.data ?? []) as Entry[])
+      let res: { data: unknown; error: { message: string } | null } = await load(`${base}, tags, client_id, deal_id`)
+      if (res.error) res = await load(`${base}, tags`)  // client_id/deal_id not present yet (pre-0027)
+      if (res.error) res = await load(base)             // tags column not present yet (pre-0011)
+      if (res.error) { setErr(res.error.message); setLoading(false); return }
+      const entries = (res.data ?? []) as Entry[]
+      setRows(entries)
       setLoading(false)
+
+      const clientIds = [...new Set(entries.map((e) => e.client_id).filter((x): x is string => !!x))]
+      const dealIds = [...new Set(entries.map((e) => e.deal_id).filter((x): x is string => !!x))]
+      if (clientIds.length) {
+        const { data } = await supabase.from('clients').select('id, name').in('id', clientIds)
+        setClientNames(Object.fromEntries((data ?? []).map((c: any) => [c.id, c.name])))
+      }
+      if (dealIds.length) {
+        const { data } = await supabase.from('deals').select('id, title').in('id', dealIds)
+        setDealNames(Object.fromEntries((data ?? []).map((d: any) => [d.id, d.title])))
+      }
     })()
   }, [])
 
@@ -209,7 +229,7 @@ export default function Memories() {
       {!inSearch && view === 'graph' && !loading && (
         browse.length === 0
           ? <p className="px-4 py-6 text-sm text-slate-500">No entries.</p>
-          : <Suspense fallback={<p className="px-4 py-6 text-sm text-slate-500">Loading graph…</p>}><MemoryGraph rows={browse} onOpen={openEntry} /></Suspense>
+          : <Suspense fallback={<p className="px-4 py-6 text-sm text-slate-500">Loading graph…</p>}><MemoryGraph rows={browse} onOpen={openEntry} clientNames={clientNames} dealNames={dealNames} /></Suspense>
       )}
 
       {/* BROWSE — CARDS view: grouped cards tile across columns; an expanded group spans the full row */}

@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthProvider'
 
-type Client = { id: string; name: string; notes: string | null }
-type Deal = { id: string; client_id: string | null; title: string; stage: string; amount: number | null; currency: string; owner_id: string | null; notes: string | null }
+type Client = { id: string; name: string; notes: string | null; industry: string | null; website: string | null; source: string | null; status: string }
+type Deal = { id: string; client_id: string | null; title: string; stage: string; amount: number | null; currency: string; owner_id: string | null; notes: string | null; next_action: string | null; follow_up_date: string | null; expected_close: string | null }
 type Member = { id: string; full_name: string }
 type DocRow = { id: string; title: string; doc_type: string; deal_id: string | null }
-type Contact = { id: string; client_id: string | null; name: string; email: string | null; role: string | null }
+type Contact = { id: string; client_id: string | null; name: string; email: string | null; role: string | null; phone: string | null; linkedin: string | null; title: string | null }
 type ActRow = { id: string; action: string; actor_id: string | null; detail: any; created_at: string }
 
 const STAGES = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost'] as const
+const SOURCES = ['referral', 'inbound', 'outbound', 'event', 'other'] as const
+const STATUSES = ['prospect', 'active', 'dormant', 'lost'] as const
 const STAGE_LABEL: Record<string, string> = { lead: 'Lead', qualified: 'Qualified', proposal: 'Proposal', negotiation: 'Negotiation', won: 'Won', lost: 'Lost' }
 const STAGE_COLOR: Record<string, string> = {
   lead: 'border-slate-700', qualified: 'border-sky-800', proposal: 'border-violet-800',
@@ -55,10 +57,10 @@ export default function CRM() {
     } else { docData = withDeal.data; docErr = null }
 
     const [c, d, m, ct] = await Promise.all([
-      supabase.from('clients').select('id, name, notes').order('name'),
-      supabase.from('deals').select('id, client_id, title, stage, amount, currency, owner_id, notes').order('created_at', { ascending: false }),
+      supabase.from('clients').select('id, name, notes, industry, website, source, status').order('name'),
+      supabase.from('deals').select('id, client_id, title, stage, amount, currency, owner_id, notes, next_action, follow_up_date, expected_close').order('created_at', { ascending: false }),
       supabase.from('team_members').select('id, full_name').eq('active', true).order('full_name'),
-      supabase.from('contacts').select('id, client_id, name, email, role').order('name'),
+      supabase.from('contacts').select('id, client_id, name, email, role, phone, linkedin, title').order('name'),
     ])
     const e = c.error || d.error || m.error || ct.error || docErr
     if (e) setErr(e.message)
@@ -93,6 +95,9 @@ export default function CRM() {
       p.amount = dealModal.amount === undefined || (dealModal.amount as any) === '' ? null : Number(dealModal.amount)
       if (dealModal.currency) p.currency = dealModal.currency
       p.notes = dealModal.notes || null
+      p.next_action = dealModal.next_action || null
+      p.follow_up_date = dealModal.follow_up_date || null
+      p.expected_close = dealModal.expected_close || null
       await post('/api/upsert-deal', p); setDealModal(null); await load()
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -103,6 +108,10 @@ export default function CRM() {
       const p: any = { name: clientModal.name }
       if (clientModal.id) p.id = clientModal.id
       p.notes = clientModal.notes || null
+      p.industry = clientModal.industry || null
+      p.website = clientModal.website || null
+      p.source = clientModal.source || null
+      p.status = clientModal.status || 'prospect'
       await post('/api/upsert-client', p); setClientModal(null); await load()
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -120,6 +129,9 @@ export default function CRM() {
       if (contactModal.client_id) p.client_id = contactModal.client_id
       p.email = contactModal.email || null
       p.role = contactModal.role || null
+      p.phone = contactModal.phone || null
+      p.linkedin = contactModal.linkedin || null
+      p.title = contactModal.title || null
       await post('/api/upsert-contact', p); setContactModal(null); await load()
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -200,8 +212,11 @@ export default function CRM() {
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {clients.map((c) => (
               <button key={c.id} onClick={() => setClientModal(c)} className="text-left rounded-lg border border-slate-800 bg-slate-900/40 hover:border-slate-700 p-3">
-                <span className="block text-sm font-medium">{c.name}</span>
-                <span className="block text-xs text-slate-500">{deals.filter((d) => d.client_id === c.id).length} deal(s)</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium truncate">{c.name}</span>
+                  <span className="ml-auto shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">{c.status}</span>
+                </div>
+                <span className="block text-xs text-slate-500">{c.industry ? `${c.industry} · ` : ''}{deals.filter((d) => d.client_id === c.id).length} deal(s)</span>
                 {c.notes && <span className="block text-xs text-slate-600 line-clamp-2 mt-1">{c.notes}</span>}
               </button>
             ))}
@@ -223,6 +238,11 @@ export default function CRM() {
               <Input label="Currency" value={dealModal.currency ?? 'USD'} onChange={(v) => setDealModal({ ...dealModal, currency: v })} />
               <Select label="Owner" value={dealModal.owner_id ?? ''} onChange={(v) => setDealModal({ ...dealModal, owner_id: v || null })} options={[{ value: '', label: '— none —' }, ...members.map((m) => ({ value: m.id, label: m.full_name }))]} />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Follow-up date" type="date" value={dealModal.follow_up_date ?? ''} onChange={(v) => setDealModal({ ...dealModal, follow_up_date: v || null })} />
+              <Input label="Expected close" type="date" value={dealModal.expected_close ?? ''} onChange={(v) => setDealModal({ ...dealModal, expected_close: v || null })} />
+            </div>
+            <Input label="Next action" value={dealModal.next_action ?? ''} onChange={(v) => setDealModal({ ...dealModal, next_action: v })} />
             <Textarea label="Notes" value={dealModal.notes ?? ''} onChange={(v) => setDealModal({ ...dealModal, notes: v })} />
             <ModalActions busy={busy} onCancel={() => setDealModal(null)} />
           </form>
@@ -234,6 +254,14 @@ export default function CRM() {
         <Modal title={clientModal.id ? 'Edit client' : 'New client'} onClose={() => setClientModal(null)}>
           <form onSubmit={saveClient} className="space-y-3">
             <Input label="Name *" value={clientModal.name ?? ''} onChange={(v) => setClientModal({ ...clientModal, name: v })} required />
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Industry" value={clientModal.industry ?? ''} onChange={(v) => setClientModal({ ...clientModal, industry: v })} />
+              <Input label="Website" value={clientModal.website ?? ''} onChange={(v) => setClientModal({ ...clientModal, website: v })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Source" value={clientModal.source ?? ''} onChange={(v) => setClientModal({ ...clientModal, source: v || null })} options={[{ value: '', label: '— none —' }, ...SOURCES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))]} />
+              <Select label="Status" value={clientModal.status ?? 'prospect'} onChange={(v) => setClientModal({ ...clientModal, status: v })} options={STATUSES.map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))} />
+            </div>
             <Textarea label="Notes" value={clientModal.notes ?? ''} onChange={(v) => setClientModal({ ...clientModal, notes: v })} />
             <ModalActions busy={busy} onCancel={() => setClientModal(null)} />
           </form>
@@ -348,6 +376,11 @@ export default function CRM() {
               <Input label="Email" value={contactModal.email ?? ''} onChange={(v) => setContactModal({ ...contactModal, email: v })} />
               <Input label="Role" value={contactModal.role ?? ''} onChange={(v) => setContactModal({ ...contactModal, role: v })} />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Phone" value={contactModal.phone ?? ''} onChange={(v) => setContactModal({ ...contactModal, phone: v })} />
+              <Input label="Title" value={contactModal.title ?? ''} onChange={(v) => setContactModal({ ...contactModal, title: v })} />
+            </div>
+            <Input label="LinkedIn" value={contactModal.linkedin ?? ''} onChange={(v) => setContactModal({ ...contactModal, linkedin: v })} />
             <ModalActions busy={busy} onCancel={() => setContactModal(null)} />
           </form>
         </Modal>

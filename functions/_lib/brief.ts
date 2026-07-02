@@ -77,11 +77,25 @@ function slugify(input: string): string {
   return input.toLowerCase().trim().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
 }
 
-// Resolve a project name. Path 1 (FK, unchanged from the original approved design): case-insensitive
-// exact match against projects.name first, else a unique case-insensitive substring match — both are
-// inherently 0-or-1 given projects.name is UNIQUE, so ambiguity there can only come from the substring
-// arm matching multiple distinct rows. An ambiguous FK result is returned immediately (never falls
-// through to path 2 — "no match" specifically triggers the fallback, not "ambiguous match").
+// Resolve a project name. Path 1 (FK): case-insensitive exact match against projects.name first; then
+// a NEW slug-normalized match (thread 0032, closes the exec-pro finding — see below); then, unchanged
+// from the original approved design, a unique case-insensitive substring match. All three arms are
+// inherently 0-or-1 given projects.name is UNIQUE, EXCEPT the substring arm, which can match multiple
+// distinct rows — that's the only source of "ambiguous" in path 1. An ambiguous FK result is returned
+// immediately (never falls through to path 2 — "no match" specifically triggers the fallback, not
+// "ambiguous match").
+//
+// exec-pro finding (thread 0032): brief("intellioptics-2-5") — a display-name slug an agent would
+// naturally type — did NOT resolve via the FK path even though a "IntelliOptics 2.5" projects row
+// exists, because neither the exact nor substring string comparison bridges "intellioptics-2-5"
+// (hyphens, no punctuation) against "IntelliOptics 2.5" (spaces, a period). It fell through to
+// memory_slug_fallback instead, which technically works but permanently means docs=[] for that input
+// (fallback has no project_id to link through) even though real FK data exists. Fix: normalize BOTH
+// the input and each project's name to slug form (same slugify() used by the memory fallback below)
+// and match on that — bridges exactly this class of formatting mismatch. Tried AFTER the exact match
+// (a stronger signal) and BEFORE substring (a looser one); if the slug match hits more than one row
+// (two differently-formatted names slugifying to the same value), that's ambiguous too, same as
+// substring — never silently pick one.
 //
 // Path 2 (memory_slug_fallback, thread 0028 §1(b)): only tried when path 1 found NOTHING. Normalizes
 // the input to a slug and matches memory_entries (kind='project'): exact `project-<slug>` first, then
@@ -98,6 +112,11 @@ async function resolveProject(admin: any, projectName: string): Promise<ResolveR
 
   const exactProject = projectRows.find((p) => p.name.toLowerCase() === needle)
   if (exactProject) return { ok: true, via: 'projects_fk', id: exactProject.id, name: exactProject.name }
+
+  const needleSlug = slugify(projectName)
+  const slugProjects = needleSlug ? projectRows.filter((p) => slugify(p.name) === needleSlug) : []
+  if (slugProjects.length === 1) return { ok: true, via: 'projects_fk', id: slugProjects[0].id, name: slugProjects[0].name }
+  if (slugProjects.length > 1) return { ok: false, reason: 'ambiguous', candidates: slugProjects.map((p) => p.name) }
 
   const substrProjects = projectRows.filter((p) => p.name.toLowerCase().includes(needle))
   if (substrProjects.length === 1) return { ok: true, via: 'projects_fk', id: substrProjects[0].id, name: substrProjects[0].name }
@@ -198,13 +217,32 @@ export async function runBrief(args: any, { admin }: { admin: any }): Promise<an
     .slice(0, ACTIVITY_LIMIT)
   const activityCapped = capArray(matchedActRows, ACTIVITY_BUDGET)
 
+  // ---- stale-deals surfacing (thread 0032 Part B): "brief's open_items gains a stale deals line when
+  //      a digest row from the last 24h exists" — a company-wide signal (the digest itself isn't
+  //      project-scoped; client_360 is the per-client payoff query for that dimension), so this is NOT
+  //      filtered by the resolved project. stale_count comes from run_stale_deals_digest's detail
+  //      (thread 0027 migration note: the deal list itself is a JSON-encoded STRING there, not a
+  //      nested array, to satisfy log_activity's flat-detail constraint — this only needs the count). ----
+  const { data: staleDigestRows } = await admin
+    .from('activity_log')
+    .select('detail')
+    .eq('action', 'crm.stale_deals')
+    .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+  const staleCount = (staleDigestRows ?? [])[0]?.detail?.stale_count
+  const openItemsList = openItemsRaw.length ? openItemsCapped.text.split('\n') : []
+  if (typeof staleCount === 'number' && staleCount > 0) {
+    openItemsList.unshift(`🔴 ${staleCount} stale deal(s) flagged in the last 24h — see Activity feed`)
+  }
+
   return {
     project: resolved.via === 'projects_fk' ? resolved.name : projectName,
     resolved_via: resolved.via,
     resume: resumeCapped ? resumeCapped.text : null,
     resume_note: resumeRow ? undefined : 'no kind="project" memory entry linked to this project',
     activity: activityCapped.rows,
-    open_items: openItemsRaw.length ? openItemsCapped.text.split('\n') : [],
+    open_items: openItemsList,
     docs: docsCapped.rows,
     truncated: {
       resume: resumeCapped?.truncated ?? false,

@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
+import VitalsStrip from './VitalsStrip'
 
 export type Tab = 'memories' | 'documents' | 'generate' | 'create' | 'crm' | 'activity' | 'team'
 
@@ -44,6 +45,7 @@ export default function AppShell({
               </button>
             ))}
           </nav>
+          <VitalsStrip />
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="text-slate-400">
               {name}

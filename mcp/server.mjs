@@ -44,6 +44,10 @@ const RECALL_TOOL = {
     properties: {
       query: { type: 'string', description: `Natural-language query (max ${MAX_QUERY_LEN} chars).` },
       k: { type: 'integer', minimum: 1, maximum: MAX_K, description: `Max results 1-${MAX_K} (default ${DEFAULT_K}).` },
+      kind: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'Optional filter: only entries of this kind.' },
+      project_id: { type: 'string', description: 'Optional filter: only entries linked to this project (uuid).' },
+      client_id: { type: 'string', description: 'Optional filter: only entries linked to this CRM client (uuid).' },
+      deal_id: { type: 'string', description: 'Optional filter: only entries linked to this CRM deal (uuid).' },
     },
     required: ['query'],
   },
@@ -61,6 +65,7 @@ const FETCH_TOOL = {
     properties: {
       name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'The entry slug (e.g. from a recall result, like "intellioptics-2-5"). Sloppy names are normalized.' },
       max_chars: { type: 'integer', minimum: 1, maximum: 16000, description: 'Optional cap on the returned text length (redaction always runs first). Omit for the full body.' },
+      heading: { type: 'string', maxLength: 200, description: 'Optional: return only the markdown section under the first heading whose title contains this (case-insensitive substring). Unknown heading -> an error listing the entry\'s real headings.' },
     },
     required: ['name'],
   },

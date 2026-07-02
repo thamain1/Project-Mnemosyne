@@ -1,6 +1,6 @@
 // Mnemosyne — keyless tests for the fetch read-body slice. Run: node test-fetch.mjs
 // No network, no DB, no keys: rpc is mocked. Mirrors test-recall.mjs / test-remember.mjs discipline.
-import { validateFetchArgs, formatEntry, runFetch, redactSecrets, truncateFormatted, REDACTION, MAX_NAME_LEN, MAX_CHARS_CAP } from './lib/fetch-core.mjs'
+import { validateFetchArgs, formatEntry, runFetch, redactSecrets, truncateFormatted, REDACTION, MAX_NAME_LEN, MAX_CHARS_CAP, MAX_HEADING_LEN, MAX_HEADINGS_LISTED } from './lib/fetch-core.mjs'
 
 let pass = 0, fail = 0
 function check(name, cond) { if (cond) { pass++; console.log(`  ok    ${name}`) } else { fail++; console.log(`  FAIL  ${name}`) } }
@@ -148,6 +148,98 @@ check('max_chars non-number rejected', throwsSync(() => validateFetchArgs({ name
   const rpcSpy = async () => { called = true; return { data: [row], error: null } }
   check('runFetch rejects bad args', await throwsAsync(() => runFetch({ name: '' }, { rpc: rpcSpy }), 'name'))
   check('runFetch no rpc on invalid args', called === false)
+}
+
+// ---- validateFetchArgs: heading (thread 0032 P5-FETCH-SCOPE) ----
+check('heading omitted -> undefined', validateFetchArgs({ name: 'x' }).heading === undefined)
+check('valid heading accepted + trimmed', validateFetchArgs({ name: 'x', heading: '  Scope  ' }).heading === 'Scope')
+check('empty heading rejected', throwsSync(() => validateFetchArgs({ name: 'x', heading: '   ' }), 'heading'))
+check('non-string heading rejected', throwsSync(() => validateFetchArgs({ name: 'x', heading: 5 }), 'heading'))
+check('over-long heading rejected', throwsSync(() => validateFetchArgs({ name: 'x', heading: 'h'.repeat(MAX_HEADING_LEN + 1) }), 'heading'))
+check('heading + max_chars together accepted', (() => { const a = validateFetchArgs({ name: 'x', heading: 'Scope', max_chars: 500 }); return a.heading === 'Scope' && a.max_chars === 500 })())
+
+// ---- runFetch: heading-scoped section extraction ----
+{
+  const sectionedBody = [
+    '# Overview',
+    'top-level intro text.',
+    '## Scope',
+    'the scope section body, line one.',
+    'line two.',
+    '### Scope details',
+    'a nested sub-heading — must stay INSIDE the Scope section.',
+    '## Timeline',
+    'timeline section body.',
+  ].join('\n')
+  const sectionedRow = { ...row, body: sectionedBody }
+  const rpcSectioned = async () => ({ data: [sectionedRow], error: null })
+
+  const scopeOut = await runFetch({ name: 'x', heading: 'Scope' }, { rpc: rpcSectioned })
+  check('heading match returns ONLY that section', scopeOut.includes('the scope section body') && !scopeOut.includes('timeline section body') && !scopeOut.includes('top-level intro'))
+  check('heading section includes its own nested sub-heading', scopeOut.includes('Scope details') && scopeOut.includes('nested sub-heading'))
+  check('heading section stops before the NEXT same-level heading', !scopeOut.includes('## Timeline'))
+
+  // case-insensitive substring match
+  const lowerOut = await runFetch({ name: 'x', heading: 'scope' }, { rpc: rpcSectioned })
+  check('heading match is case-insensitive', lowerOut.includes('the scope section body'))
+  const substrOut = await runFetch({ name: 'x', heading: 'time' }, { rpc: rpcSectioned })
+  check('heading match is substring, not exact', substrOut.includes('timeline section body'))
+
+  // first match wins when a needle matches multiple headings
+  const dupBody = '# Setup\nfirst.\n# Setup notes\nsecond.\n'
+  const rpcDup = async () => ({ data: [{ ...row, body: dupBody }], error: null })
+  const dupOut = await runFetch({ name: 'x', heading: 'Setup' }, { rpc: rpcDup })
+  check('ambiguous substring -> FIRST match wins (never guess beyond that)', dupOut.includes('first.') && !dupOut.includes('second.'))
+
+  // unknown heading -> structured, never-guess error listing available headings
+  const missErr = await throwsAsync(() => runFetch({ name: 'x', heading: 'Nonexistent' }, { rpc: rpcSectioned }))
+  check('unknown heading throws (not a silent guess)', missErr)
+  try {
+    await runFetch({ name: 'x', heading: 'Nonexistent' }, { rpc: rpcSectioned })
+  } catch (e) {
+    check('unknown-heading error lists the real headings', /Overview/.test(e.message) && /Scope/.test(e.message) && /Timeline/.test(e.message))
+  }
+
+  // no headings at all in the body -> clean "(none)" message, not a crash
+  const noHeadRow = { ...row, body: 'plain text with no markdown headings at all.' }
+  const rpcNoHead = async () => ({ data: [noHeadRow], error: null })
+  const noHeadErr = await throwsAsync(() => runFetch({ name: 'x', heading: 'Anything' }, { rpc: rpcNoHead }))
+  check('heading requested on a body with zero headings -> throws cleanly', noHeadErr)
+
+  // heading list is capped (thread 0032: never dump an unbounded list)
+  const manyHeadings = Array.from({ length: MAX_HEADINGS_LISTED + 10 }, (_, i) => `# Section ${i}\nbody ${i}.`).join('\n')
+  const rpcMany = async () => ({ data: [{ ...row, body: manyHeadings }], error: null })
+  try {
+    await runFetch({ name: 'x', heading: 'zzz-no-match' }, { rpc: rpcMany })
+    check('capped heading list -> should have thrown', false)
+  } catch (e) {
+    const listedCount = (e.message.match(/Section \d+/g) ?? []).length
+    check('heading list is capped, not unbounded', listedCount <= MAX_HEADINGS_LISTED, `listed=${listedCount}`)
+    check('capped heading list notes how many more exist', /more/.test(e.message))
+  }
+}
+
+// ---- SECURITY: redact-before-section (a secret straddling a section boundary must never survive) ----
+{
+  // secret sits right at the section boundary — a truncate/section-FIRST ordering could split it
+  const secretAtBoundary = `# Before\nintro.\n# Danger sk_live_${'a'.repeat(24)} zone\nheading itself carries a secret.\n# After\ntail.`
+  const rpcBoundary = async () => ({ data: [{ ...row, body: secretAtBoundary }], error: null })
+
+  // (a) the secret is INSIDE a heading title itself — the not-found error's heading list must show the
+  //     REDACTED version, never the raw secret (thread 0032 build instruction: redact before listing)
+  try {
+    await runFetch({ name: 'x', heading: 'zzz-no-match' }, { rpc: rpcBoundary })
+    check('redact-before-list setup -> should have thrown', false)
+  } catch (e) {
+    check('heading list never leaks a raw secret from a heading title', !e.message.includes('sk_live_' + 'a'.repeat(10)))
+    check('heading list shows the REDACTED marker for a contaminated heading', e.message.includes(REDACTION))
+  }
+
+  // (b) fetching a clean section still works when ANOTHER heading in the same body is contaminated —
+  //     proves redaction runs on the whole body up front, not selectively
+  const cleanSectionOut = await runFetch({ name: 'x', heading: 'After' }, { rpc: rpcBoundary })
+  check('unrelated clean section is unaffected by a contaminated sibling heading', cleanSectionOut.includes('tail.'))
+  check('clean section never contains a raw secret leaked from elsewhere in the body', !cleanSectionOut.includes('sk_live_' + 'a'.repeat(10)))
 }
 
 console.log(`[fetch-test] pass=${pass} fail=${fail}`)

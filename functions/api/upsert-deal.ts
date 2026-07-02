@@ -5,9 +5,10 @@
 import { requireMember, parseStrict, isUuid, json } from '../_lib/member-auth'
 
 const STAGES = ['lead', 'qualified', 'proposal', 'negotiation', 'won', 'lost']
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export const onRequestPost = async (context: any): Promise<Response> => {
-  const parsed = await parseStrict(context, ['id', 'client_id', 'title', 'stage', 'amount', 'currency', 'owner_id', 'notes'])
+  const parsed = await parseStrict(context, ['id', 'client_id', 'title', 'stage', 'amount', 'currency', 'owner_id', 'notes', 'next_action', 'follow_up_date', 'expected_close'])
   if (!parsed.ok) return parsed.res
   const b = parsed.body
   if (b.id !== undefined && b.id !== null && !isUuid(b.id)) return json({ error: '"id" must be a uuid' }, 400)
@@ -20,6 +21,10 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   if (b.currency !== undefined && b.currency !== null && (typeof b.currency !== 'string' || b.currency.length > 10)) return json({ error: '"currency" must be a string (<=10 chars)' }, 400)
   if (b.notes !== undefined && b.notes !== null && typeof b.notes !== 'string') return json({ error: '"notes" must be a string' }, 400)
   if (typeof b.notes === 'string' && b.notes.length > 4000) return json({ error: '"notes" exceeds 4000 chars' }, 400)
+  if (b.next_action !== undefined && b.next_action !== null && typeof b.next_action !== 'string') return json({ error: '"next_action" must be a string' }, 400)
+  if (typeof b.next_action === 'string' && b.next_action.length > 500) return json({ error: '"next_action" exceeds 500 chars' }, 400)
+  if (b.follow_up_date !== undefined && b.follow_up_date !== null && (typeof b.follow_up_date !== 'string' || !DATE_RE.test(b.follow_up_date))) return json({ error: '"follow_up_date" must be a YYYY-MM-DD string' }, 400)
+  if (b.expected_close !== undefined && b.expected_close !== null && (typeof b.expected_close !== 'string' || !DATE_RE.test(b.expected_close))) return json({ error: '"expected_close" must be a YYYY-MM-DD string' }, 400)
 
   const auth = await requireMember(context)
   if (!auth.ok) return auth.res
@@ -31,6 +36,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   if (b.amount !== undefined) payload.amount = b.amount
   if (b.currency !== undefined) payload.currency = b.currency
   if (b.notes !== undefined) payload.notes = b.notes
+  if (b.next_action !== undefined) payload.next_action = b.next_action
+  if (b.follow_up_date !== undefined) payload.follow_up_date = b.follow_up_date
+  if (b.expected_close !== undefined) payload.expected_close = b.expected_close
 
   const { data: id, error } = await auth.admin.rpc('upsert_deal', { p_payload: payload, p_actor: auth.uid, p_audit: { op: b.id ? 'update' : 'create', stage: b.stage } })
   if (error) {

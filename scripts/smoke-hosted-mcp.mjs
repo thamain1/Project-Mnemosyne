@@ -383,6 +383,42 @@ async function main() {
   const afterRevoke = await call(revokeToken, rpcReq('initialize', {}))
   check('revoked mid-session -> next call 401', afterRevoke.status === 401)
 
+  // ================= 9. THREAD 0032 (P2-BRIDGE + P2-CRM + P1-HYBRID) — hosted-MCP surface =================
+  // Full DB-level coverage of bridge/CRM/hybrid/fetch-scope lives in scripts/smoke-bridge-crm-hybrid.mjs.
+  // This section proves the SAME features work end-to-end through the hosted MCP tool dispatch (schema
+  // exposure + argument plumbing), not a re-test of the underlying RPC logic.
+  {
+    // recall: hybrid dispatch + filters work through the hosted tool (recall-core.mjs's runRecall now
+    // calls recall_memory_hybrid; a real semantic query should still succeed with no visible change to
+    // the caller's experience — same shape, richer ranking).
+    const hybridRecall = await call(fullToken, rpcReq('tools/call', { name: 'recall', arguments: { query: 'Mnemosyne hosted MCP thread 0027', k: 5 } }))
+    check('recall via hosted MCP still works post-hybrid-switch', hybridRecall.status === 200 && !hybridRecall.json?.result?.isError, JSON.stringify(hybridRecall.json).slice(0, 200))
+    const badKindFilter = await call(fullToken, rpcReq('tools/call', { name: 'recall', arguments: { query: 'x', kind: 'not-a-real-kind' } }))
+    check('recall with an invalid kind filter -> tool error (validated, not silently ignored)', badKindFilter.status === 200 && badKindFilter.json?.result?.isError === true)
+
+    // fetch: heading-scope works through the hosted tool. Uses the existing secretEntryName fixture,
+    // which (per the earlier "brief fixture" setup) is a large body WITHOUT markdown headings — so
+    // instead we fetch a heading known not to exist and confirm the structured-error contract holds
+    // end-to-end (schema accepts `heading`, dispatch reaches fetch-core's new logic, error surfaces as
+    // a tool error, not a transport failure).
+    const headingMiss = await call(fullToken, rpcReq('tools/call', { name: 'fetch', arguments: { name: secretEntryName, heading: 'Nonexistent Section Name' } }))
+    check('fetch with an unmatched heading -> tool error (not a crash), via the hosted endpoint', headingMiss.status === 200 && headingMiss.json?.result?.isError === true)
+    check('unmatched-heading tool error text is non-empty (heading-list content)', (headingMiss.json?.result?.content?.[0]?.text ?? '').length > 0)
+
+    // brief: exec-pro repro through the hosted endpoint — thread 0030's backfill mapped
+    // "intellioptics-2-5" -> project "IntelliOptics 2.5"; this unit's slug-normalization fix is what
+    // makes the FK path actually reachable from that exact input (proven at the DB layer in
+    // smoke-bridge-crm-hybrid.mjs; this confirms the same behavior end-to-end through /api/mcp).
+    const { data: ioProject } = await admin.from('projects').select('id').ilike('name', 'IntelliOptics 2.5').maybeSingle()
+    if (ioProject) {
+      const execProCall = await call(fullToken, rpcReq('tools/call', { name: 'brief', arguments: { project: 'intellioptics-2-5' } }))
+      const execProResult = JSON.parse(execProCall.json?.result?.content?.[0]?.text ?? '{}')
+      check('brief("intellioptics-2-5") resolves via projects_fk (exec-pro repro, hosted endpoint)', execProResult.resolved_via === 'projects_fk', JSON.stringify(execProResult).slice(0, 200))
+    } else {
+      check('brief exec-pro repro — IntelliOptics 2.5 project exists', false, 'not found — thread 0030 backfill may not have run on this DB')
+    }
+  }
+
   console.log(`\n[smoke-hosted-mcp] pass=${pass} fail=${fail}`)
   if (fail) process.exitCode = 1
 }

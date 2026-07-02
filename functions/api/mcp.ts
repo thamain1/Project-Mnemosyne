@@ -64,12 +64,16 @@ const TOOLS: ToolDef[] = [
   {
     name: 'recall',
     scope: 'recall',
-    description: 'Semantic recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, similarity, source path, and last-updated freshness. Read-only.',
+    description: 'Hybrid (vector + full-text) recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, similarity, source path, last-updated freshness, and which search arm(s) matched. Read-only.',
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {
-        query: { type: 'string', description: `Natural-language query (max ${MAX_QUERY_LEN} chars).` },
+        query: { type: 'string', description: `Natural-language OR exact-term query (max ${MAX_QUERY_LEN} chars) — exact slugs/refs now rank via full-text, not just semantic similarity.` },
         k: { type: 'integer', minimum: 1, maximum: 20, description: 'Max results 1-20 (default 8; lower cap than the local tool — P5-AGENT-DIET).' },
+        kind: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'Optional filter: only entries of this kind.' },
+        project_id: { type: 'string', description: 'Optional filter: only entries linked to this project (uuid).' },
+        client_id: { type: 'string', description: 'Optional filter: only entries linked to this CRM client (uuid).' },
+        deal_id: { type: 'string', description: 'Optional filter: only entries linked to this CRM deal (uuid).' },
       },
       required: ['query'],
     },
@@ -83,6 +87,7 @@ const TOOLS: ToolDef[] = [
       properties: {
         name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'The entry slug (e.g. from a recall result).' },
         max_chars: { type: 'integer', minimum: 1, maximum: MAX_CHARS_CAP, description: `Cap on returned text length (default 8000, max ${MAX_CHARS_CAP}).` },
+        heading: { type: 'string', maxLength: 200, description: 'Optional: return only the markdown section under the first heading whose title contains this (case-insensitive substring). Unknown heading -> an error listing the entry\'s real headings.' },
       },
       required: ['name'],
     },

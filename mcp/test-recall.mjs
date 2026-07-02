@@ -29,6 +29,23 @@ await throws('k = 0', () => validateArgs({ query: 'hi', k: 0 }))
 await throws('k > MAX', () => validateArgs({ query: 'hi', k: 51 }))
 await throws('non-object args', () => validateArgs('hi'))
 
+// --- validateArgs: thread 0032 hybrid filters ---
+const UUID = '11111111-1111-1111-1111-111111111111'
+await accepts('valid kind filter', () => validateArgs({ query: 'hi', kind: 'project' }))
+await throws('bad kind filter', () => validateArgs({ query: 'hi', kind: 'bogus' }))
+await accepts('valid project_id filter', () => validateArgs({ query: 'hi', project_id: UUID }))
+await throws('bad project_id (not a uuid)', () => validateArgs({ query: 'hi', project_id: 'nope' }))
+await accepts('valid client_id filter', () => validateArgs({ query: 'hi', client_id: UUID }))
+await throws('bad client_id (not a uuid)', () => validateArgs({ query: 'hi', client_id: 'nope' }))
+await accepts('valid deal_id filter', () => validateArgs({ query: 'hi', deal_id: UUID }))
+await throws('bad deal_id (not a uuid)', () => validateArgs({ query: 'hi', deal_id: 'nope' }))
+await accepts('all filters together', () => validateArgs({ query: 'hi', kind: 'project', project_id: UUID, client_id: UUID, deal_id: UUID }))
+{
+  const parsed = validateArgs({ query: 'hi' })
+  if (parsed.kind !== undefined || parsed.project_id !== undefined) bad('filters default to undefined, not null/empty-string')
+  else ok('filters default to undefined, not null/empty-string')
+}
+
 // --- toVecLiteral ---
 await accepts('normalize 768 (norm 1)', () => { const a = JSON.parse(toVecLiteral(vec(2))); const n = Math.sqrt(a.reduce((s, x) => s + x * x, 0)); if (Math.abs(n - 1) > 1e-9) throw new Error('not normalized') })
 await throws('wrong-length vector', () => toVecLiteral([1, 2, 3]))
@@ -45,7 +62,34 @@ await accepts('embed sends RETRIEVAL_QUERY + 768 + key header + model', async ()
 
 // --- runRecall (mock embed + rpc) ---
 const mockEmbed = async () => toVecLiteral(vec(1))
-await accepts('runRecall exact RPC name/args + format', async () => { let call; const rpc = async (n, a) => { call = { n, a }; return { data: [{ name: 'x', title: 't', kind: 'project', source_path: 'memory/x.md', similarity: 0.9, updated_at: '2026-06-15', matched_via: 'entry' }], error: null } }; const out = await runRecall({ query: 'q', k: 3 }, { embedQuery: mockEmbed, rpc }); if (call.n !== 'recall_memory') throw new Error('rpc name'); if (call.a.match_count !== 3) throw new Error('k'); if (typeof call.a.query_embedding !== 'string') throw new Error('emb'); if (!/x \(project\)/.test(out)) throw new Error('fmt') })
+await accepts('runRecall calls recall_memory_hybrid with query text + embedding + filters + format', async () => {
+  let call
+  const rpc = async (n, a) => { call = { n, a }; return { data: [{ name: 'x', title: 't', kind: 'project', source_path: 'memory/x.md', similarity: 0.9, updated_at: '2026-06-15', matched_via: 'both' }], error: null } }
+  const out = await runRecall({ query: 'q', k: 3, kind: 'project', project_id: UUID }, { embedQuery: mockEmbed, rpc })
+  if (call.n !== 'recall_memory_hybrid') throw new Error('rpc name: ' + call.n)
+  if (call.a.p_query !== 'q') throw new Error('p_query not raw text: ' + call.a.p_query)
+  if (call.a.p_match_count !== 3) throw new Error('k')
+  if (typeof call.a.p_embedding !== 'string') throw new Error('emb')
+  if (call.a.p_kind !== 'project') throw new Error('p_kind')
+  if (call.a.p_project_id !== UUID) throw new Error('p_project_id')
+  if (call.a.p_client_id !== null || call.a.p_deal_id !== null) throw new Error('unset filters must be null, not undefined')
+  if (!/x \(project\)/.test(out)) throw new Error('fmt')
+})
+await accepts('runRecall falls back to recall_memory when hybrid function is missing (pre-migration-0027 safety net)', async () => {
+  const calls = []
+  const rpc = async (n, a) => {
+    calls.push(n)
+    if (n === 'recall_memory_hybrid') return { data: null, error: { message: 'Could not find the function public.recall_memory_hybrid in the schema cache' } }
+    return { data: [{ name: 'y', title: 'old', kind: 'reference', source_path: 'memory/y.md', similarity: 0.5, updated_at: '2026-01-01', matched_via: 'entry' }], error: null }
+  }
+  const out = await runRecall({ query: 'q' }, { embedQuery: mockEmbed, rpc })
+  if (calls.join(',') !== 'recall_memory_hybrid,recall_memory') throw new Error('call order: ' + calls.join(','))
+  if (!/y \(reference\)/.test(out)) throw new Error('fallback result not formatted: ' + out)
+})
+await throws('runRecall does NOT fall back on a real (non-missing-function) hybrid error', async () => {
+  const rpc = async (n) => (n === 'recall_memory_hybrid' ? { data: null, error: { message: 'permission denied for function recall_memory_hybrid' } } : { data: [], error: null })
+  await runRecall({ query: 'q' }, { embedQuery: mockEmbed, rpc })
+})
 await throws('runRecall RPC error -> throw', async () => { const rpc = async () => ({ data: null, error: { message: 'boom' } }); await runRecall({ query: 'q' }, { embedQuery: mockEmbed, rpc }) })
 await accepts('runRecall empty -> No matches', async () => { const rpc = async () => ({ data: [], error: null }); const out = await runRecall({ query: 'zzz' }, { embedQuery: mockEmbed, rpc }); if (!/No matches/.test(out)) throw new Error(out) })
 await throws('runRecall propagates validation error', async () => { await runRecall({ query: '' }, { embedQuery: mockEmbed, rpc: async () => ({ data: [], error: null }) }) })

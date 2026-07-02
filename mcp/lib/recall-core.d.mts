@@ -8,8 +8,16 @@ export declare const DIMS: number
 export declare const MAX_QUERY_LEN: number
 export declare const MAX_K: number
 export declare const DEFAULT_K: number
+export declare const KINDS: string[]
 
-export declare function validateArgs(args: unknown): { query: string; k: number }
+export declare function validateArgs(args: unknown): {
+  query: string
+  k: number
+  kind?: string
+  project_id?: string
+  client_id?: string
+  deal_id?: string
+}
 export declare function toVecLiteral(values: number[]): string
 
 export declare function makeEmbedQuery(opts: {

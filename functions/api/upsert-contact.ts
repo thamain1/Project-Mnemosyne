@@ -5,7 +5,7 @@
 import { requireMember, parseStrict, isUuid, json } from '../_lib/member-auth'
 
 export const onRequestPost = async (context: any): Promise<Response> => {
-  const parsed = await parseStrict(context, ['id', 'client_id', 'name', 'email', 'role'])
+  const parsed = await parseStrict(context, ['id', 'client_id', 'name', 'email', 'role', 'phone', 'linkedin', 'title'])
   if (!parsed.ok) return parsed.res
   const b = parsed.body
   if (b.id !== undefined && b.id !== null && !isUuid(b.id)) return json({ error: '"id" must be a uuid' }, 400)
@@ -20,6 +20,12 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   if (typeof b.email === 'string' && b.email.length > 200) return json({ error: '"email" exceeds 200 chars' }, 400)
   if (b.role !== undefined && b.role !== null && typeof b.role !== 'string') return json({ error: '"role" must be a string' }, 400)
   if (typeof b.role === 'string' && b.role.length > 120) return json({ error: '"role" exceeds 120 chars' }, 400)
+  if (b.phone !== undefined && b.phone !== null && typeof b.phone !== 'string') return json({ error: '"phone" must be a string' }, 400)
+  if (typeof b.phone === 'string' && b.phone.length > 40) return json({ error: '"phone" exceeds 40 chars' }, 400)
+  if (b.linkedin !== undefined && b.linkedin !== null && typeof b.linkedin !== 'string') return json({ error: '"linkedin" must be a string' }, 400)
+  if (typeof b.linkedin === 'string' && b.linkedin.length > 300) return json({ error: '"linkedin" exceeds 300 chars' }, 400)
+  if (b.title !== undefined && b.title !== null && typeof b.title !== 'string') return json({ error: '"title" must be a string' }, 400)
+  if (typeof b.title === 'string' && b.title.length > 150) return json({ error: '"title" exceeds 150 chars' }, 400)
 
   const auth = await requireMember(context)
   if (!auth.ok) return auth.res
@@ -30,6 +36,9 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   if (b.client_id !== undefined) payload.client_id = b.client_id
   if (b.email !== undefined) payload.email = b.email
   if (b.role !== undefined) payload.role = b.role
+  if (b.phone !== undefined) payload.phone = b.phone
+  if (b.linkedin !== undefined) payload.linkedin = b.linkedin
+  if (b.title !== undefined) payload.title = b.title
   const { data: id, error } = await auth.admin.rpc('upsert_contact', { p_payload: payload, p_actor: auth.uid, p_audit: { op: b.id ? 'update' : 'create' } })
   if (error) {
     const msg = error.message || ''

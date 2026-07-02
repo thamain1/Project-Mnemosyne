@@ -1,15 +1,11 @@
 # 0032 — P2-BRIDGE + P2-CRM + P1-HYBRID: lead-gen foundation (design)
 
 - **Opened:** 2026-07-02 (Atlas/Fable)
-- **Status:** ✅ **DESIGN APPROVED (Aegis re-review, 2026-07-02) — HANDED TO SONNET 5 FOR
-  IMPLEMENTATION.** History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved. Both
-  reviews at bottom. **Sonnet: the re-review's "Required implementation gate notes" are BINDING** —
-  especially: create `recall_memory_hybrid`, NEVER touch `recall_memory(vector,int)` in this unit
-  (stale r1 wording in acceptance/rollback has been cleaned to match, but the Aegis ruling governs);
-  exactly one cron job after migration re-run; all 3 CRM paths × 4 layers; heading-list errors from
-  the redacted body; vitals must not loosen `machine_tokens` exposure. Migration
-  `0027_bridge_crm_hybrid.sql` stays UNAPPLIED until Aegis post-build QC + Jesse apply-go; deploy
-  order = apply → prove old recall serves deployed code → push caller switch.
+- **Status:** 🟡 **IMPLEMENTATION COMPLETE (Sonnet 5, 2026-07-02) — AWAITING AEGIS POST-BUILD QC.**
+  History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved → Sonnet built against r2.
+  Both design reviews at bottom; Sonnet's implementation report is appended at the very end of this
+  doc. Migration `0027_bridge_crm_hybrid.sql` is **written but UNAPPLIED** — still gated behind Aegis
+  post-build QC + Jesse's explicit apply-go, per the standing 0024 rule. Nothing has been pushed.
 - **Unit:** roadmap thread `0024` recommended-sequence step 4 ("lead-gen foundation, immediately
   useful to the team"). **P5-FETCH-SCOPE rides with HYBRID** per the roadmap. Two small UI riders
   from Jesse's 2026-07-02 concept direction (see "UI riders" — `docs/UIandAgentIdeal.md`,
@@ -293,3 +289,69 @@ must not loosen `machine_tokens` exposure — endpoint fallback already specifie
 ### Aegis handoff
 
 Proceed to Sonnet 5 implementation against r2. Aegis will block post-build if the old `recall_memory(vector,int)` is modified in this unit, if `client_360` is directly executable by anon/authenticated roles, if migration 0027 is applied or pushed out of order, or if the new smoke battery does not prove the hybrid/bridge/CRM/fetch/brief/UI gates.
+
+---
+
+## Sonnet 5 Implementation Report — 2026-07-02
+
+**All 9 acceptance criteria built against r2. Migration held UNAPPLIED as required.**
+
+**Migration `supabase/migrations/0027_bridge_crm_hybrid.sql`** (new, single file, additive-only):
+Bridge (client_id/deal_id on memory_entries+documents, partial indexes, ingest/update_memory
+extended, `memory.link` audit rows on link changes, optimistic concurrency unchanged, `client_360`
+service-role-only per house pattern), CRM (industry/website/source/status on clients; phone/
+linkedin/title on contacts; next_action/follow_up_date/expected_close/updated_at+trigger on deals;
+all three upsert RPCs extended; `run_stale_deals_digest()` + `pg_cron` job
+`mnemosyne_stale_deals_daily` at `0 12 * * *`, same-day idempotent), Hybrid (`fts` generated column +
+GIN index, NEW `recall_memory_hybrid` RPC — `recall_memory(vector,int)` untouched, RRF k=60 fusion +
+recency boost).
+
+Two implementation decisions not spelled out verbatim in the design, documented in the migration's
+header comment: (1) `log_activity` gets a minimal null-actor carve-out scoped by exact string match
+to `p_action = 'crm.stale_deals'` only — no system actor row exists yet; (2) the stale-deals digest
+list is encoded as a JSON-string `deals_json` value (not a nested array) to satisfy `log_activity`'s
+existing flat-detail constraint without weakening it for any other caller.
+
+**Code (all committed, none deployed until migration applies):** `functions/api/client-360.ts`,
+`functions/api/vitals.ts` (new); `functions/_lib/brief.ts` (slug-normalization fix, stale-deal
+surfacing), `functions/api/mcp.ts`, `functions/api/upsert-{client,deal,contact}.ts`,
+`mcp/lib/{recall,fetch}-core.mjs` (+`.d.mts`), `mcp/server.mjs` (modified). `recall-core.mjs`
+additionally carries a runtime fallback (hybrid RPC → old RPC on a missing-function error) as a
+safety net for the local stdio server specifically, since it has no push-gate the way the hosted
+endpoint does — proven in `mcp/test-recall.mjs`.
+
+**UI riders:** `src/components/MemoryGraph.tsx` (idle animation, hover/selection particles,
+zoom-to-node, client/deal bridge-edge rendering), `src/components/VitalsStrip.tsx` (new) +
+`src/components/AppShell.tsx`, `src/pages/{CRM,Memories}.tsx`.
+
+**Verification (2026-07-02, this build):**
+- `npm run build` — green (`tsc -b`, `tsc -p tsconfig.functions.json`, `vite build`).
+- All `mcp/test-*.mjs` green, no regressions: fetch 75/75, recall 39/39, remember 60/60,
+  update 42/42, usage 5/5, getsecret 17/17, log all passing.
+- `node --check` clean on every new/modified script.
+- `scripts/smoke-bridge-crm-hybrid.mjs` (new) written for live post-apply verification: bridge
+  round-trip + audit + concurrency + `client_360` shape/denial, CRM validation paths, stale-digest
+  idempotency (with a self-caught fix protecting against deleting a real same-day production digest
+  — see thread notes), hybrid FTS-arm ranking + filters + `recall_memory` untouched proof,
+  fetch-scope, vitals no-leak checks. NOT yet run live — migration 0027 is unapplied, so its
+  RPC/column-level checks would correctly fail right now; this is expected per the script's own
+  precondition header.
+- `scripts/smoke-hosted-mcp.mjs` extended with a new "THREAD 0032 ADDITIONS" section proving the
+  same bridge/hybrid/fetch-scope/brief surface through the live hosted MCP tool dispatch: recall
+  still succeeds post-hybrid-switch, an invalid `kind` filter is rejected as a tool error (not
+  silently ignored), an unmatched `heading` on `fetch` returns a structured tool error, and
+  `brief("intellioptics-2-5")` resolves via `projects_fk` (the exec-pro repro this unit's
+  name-normalization fix exists to close) when the DB's "IntelliOptics 2.5" project row is present.
+- `functions/api/recall.ts` (the dashboard's `/api/recall` search endpoint, unrelated to the MCP
+  `recall` tool) was deliberately left unchanged — its own `MAX_K=50` cap is a different surface
+  than the "hosted keeps k≤20 cap" language in the design, which refers to the MCP tools.
+
+**Not run / cannot verify from this environment:** the migration itself has not been applied, so no
+live RPC/EXPLAIN/cron-count checks have executed yet; the UI riders are visually unverified (no
+browser session available this session) — screenshot/video for Aegis is still outstanding.
+
+**Next steps (in order):** Aegis post-build code QC → Jesse apply-go → apply migration 0027 → run
+`scripts/smoke-bridge-crm-hybrid.mjs` and the extended `scripts/smoke-hosted-mcp.mjs` live → confirm
+old `recall_memory(vector,int)` still serves deployed code → push the code (caller switch + all
+above) → re-run both smoke batteries against the pushed deploy → Aegis live sign-off → capture UI
+rider screenshot/video.

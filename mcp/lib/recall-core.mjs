@@ -1,16 +1,21 @@
 // Mnemosyne — mnemosyne recall core (pure/injectable, so it's testable keyless).
 // Shared by server.mjs (real fetch + supabase.rpc) and test-recall.mjs (mocks). No stdout writes.
 
+import { isUuid } from './remember-core.mjs'
+
 export const MODEL = 'gemini-embedding-001'
 export const DIMS = 768
 export const MAX_QUERY_LEN = 2000
 export const MAX_K = 50
 export const DEFAULT_K = 8
+export const KINDS = ['user', 'feedback', 'project', 'reference']
 
 // Strict, bounded tool-argument validation (Aegis recall #3): no String()/parseInt() coercion.
+// Thread 0032 P1-HYBRID: gained optional kind/project_id/client_id/deal_id filters — same filters
+// recall_memory_hybrid accepts, applied BEFORE ranking on the DB side.
 export function validateArgs(args) {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) throw new Error('recall: arguments must be an object')
-  for (const key of Object.keys(args)) if (!['query', 'k'].includes(key)) throw new Error(`recall: unexpected argument "${key}"`)
+  for (const key of Object.keys(args)) if (!['query', 'k', 'kind', 'project_id', 'client_id', 'deal_id'].includes(key)) throw new Error(`recall: unexpected argument "${key}"`)
   if (typeof args.query !== 'string') throw new Error('recall: "query" must be a string')
   const query = args.query.trim()
   if (!query) throw new Error('recall: "query" must be a non-empty string')
@@ -22,7 +27,19 @@ export function validateArgs(args) {
     }
     k = args.k
   }
-  return { query, k }
+  let kind
+  if (args.kind !== undefined) {
+    if (typeof args.kind !== 'string' || !KINDS.includes(args.kind)) throw new Error(`recall: "kind" must be one of ${KINDS.join(', ')}`)
+    kind = args.kind
+  }
+  let project_id, client_id, deal_id
+  for (const [key, setter] of [['project_id', (v) => (project_id = v)], ['client_id', (v) => (client_id = v)], ['deal_id', (v) => (deal_id = v)]]) {
+    if (args[key] !== undefined) {
+      if (!isUuid(args[key])) throw new Error(`recall: "${key}" must be a uuid`)
+      setter(args[key])
+    }
+  }
+  return { query, k, kind, project_id, client_id, deal_id }
 }
 
 // Normalize a finite 768-vector to a pgvector literal; reject zero/degenerate norm.
@@ -79,11 +96,30 @@ export function formatResults(query, rows) {
   return `Top ${rows.length} for "${query}":\n\n${lines.join('\n')}`
 }
 
-// Orchestrate: validate -> embed -> recall_memory RPC -> format. embedQuery/rpc injectable.
+// Postgres/PostgREST error shapes for "this function doesn't exist (yet)" — covers both a raw
+// undefined-function error (42883) and PostgREST's schema-cache miss wording.
+const MISSING_FUNCTION_RE = /42883|schema cache|does not exist|could not find/i
+
+// Orchestrate: validate -> embed -> recall_memory_hybrid RPC -> format. embedQuery/rpc injectable.
+// Thread 0032 P1-HYBRID: calls the NEW recall_memory_hybrid (raw query text + embedding + filters,
+// RRF-fused vector+FTS) instead of the old pure-vector recall_memory. Falls back to recall_memory if
+// the hybrid function isn't found — this is deliberately MORE defensive than the hosted endpoint
+// needs to be: the hosted path is gated by a real push/deploy step (safe to switch outright once
+// migration 0027 is applied), but this LOCAL stdio server has no such gate — editing this file takes
+// effect the moment the MCP client next reconnects, on WHATEVER machine has it configured, regardless
+// of whether migration 0027 has been applied to that machine's target DB yet. The fallback makes this
+// code safe to have on disk at any point relative to the migration, and it self-upgrades to hybrid
+// the moment the function exists — no second manual "switch" step needed for this path.
 export async function runRecall(args, { embedQuery, rpc }) {
-  const { query, k } = validateArgs(args)
+  const { query, k, kind, project_id, client_id, deal_id } = validateArgs(args)
   const query_embedding = await embedQuery(query)
-  const { data, error } = await rpc('recall_memory', { query_embedding, match_count: k })
-  if (error) throw new Error(`recall_memory error: ${error.message}`)
+  let { data, error } = await rpc('recall_memory_hybrid', {
+    p_query: query, p_embedding: query_embedding, p_match_count: k,
+    p_kind: kind ?? null, p_project_id: project_id ?? null, p_client_id: client_id ?? null, p_deal_id: deal_id ?? null,
+  })
+  if (error && MISSING_FUNCTION_RE.test(error.message || '')) {
+    ;({ data, error } = await rpc('recall_memory', { query_embedding, match_count: k }))
+  }
+  if (error) throw new Error(`recall error: ${error.message}`)
   return formatResults(query, data)
 }
