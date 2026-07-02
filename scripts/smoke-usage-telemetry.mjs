@@ -69,8 +69,10 @@ async function main() {
     check('anon direct INSERT -> 42501', anonIns.error?.code === '42501', `code=${anonIns.error?.code}`)
 
     // ---- 1b. authenticated (member) direct INSERT -> 42501 (writes gated to service_role, not just policy) ----
-    const memberClient = createClient(URL, PUB, { auth: { persistSession: false, autoRefreshToken: false } })
-    await memberClient.auth.setSession({ access_token: memberJwt, refresh_token: 'x' }).catch(() => {})
+    const memberClient = createClient(URL, PUB, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { authorization: `Bearer ${memberJwt}` } },
+    })
     const memberIns = await memberClient.from('usage_events').insert({ source: 'endpoint', tool: 'x' })
     check('authenticated direct INSERT -> 42501', memberIns.error?.code === '42501', `code=${memberIns.error?.code}`)
 
@@ -97,7 +99,20 @@ async function main() {
     const beforeGen = Date.now()
     const gc = await post('/api/generate-contract', {
       doc_type: 'mou',
-      fields: { client_entity: 'Acme Wellness LLC', client_signer_name: 'Dana Rivera', client_signer_title: 'Founder', project_name: 'Portal', effective_date: '2026-07-01', overview: 'Build a member portal.', scope: 'Signup, booking, attendance briefly.' },
+      fields: {
+        project_name: 'Usage Telemetry Smoke Portal',
+        client_entity: 'Acme Wellness LLC, a North Carolina limited liability company',
+        client_attn: 'Dana Rivera',
+        client_signatory_name: 'Dana Rivera',
+        engagement_ref: 'SMOKE-USAGE-001',
+        sow_ref: 'SMOKE-USAGE-SOW-001',
+        timeline: 'eight (8) weeks',
+        milestones_table: '| # | Milestone | Trigger | Amount |\n|---|---|---|---|\n| 1 | Kickoff | Signature | $1,000 |\n\n**Total: $1,000**',
+        fee_summary: 'A flat project fee of $1,000, due at kickoff.',
+        purpose: 'A short member portal for booking and attendance tracking.',
+        scope_summary: 'Signup, booking, and attendance tracking.',
+        client_responsibilities: 'Provide branding assets and content in a timely manner.',
+      },
       ground: false,
     }, memberJwt)
     check('generate-contract call -> 200', gc.status === 200, `status=${gc.status} ${gc.json ? JSON.stringify(gc.json).slice(0, 150) : ''}`)
