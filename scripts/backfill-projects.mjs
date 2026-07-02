@@ -147,7 +147,9 @@ async function stepB(idByName) {
       continue
     }
     if (DRY) { console.log(`  would-map    ${row.name} -> ${project} (${reason})`); mapped++; continue }
-    const { error: updErr } = await admin.from('memory_entries').update({ project_id: pid }).eq('id', row.id)
+    // .is('project_id', null) in the UPDATE itself (0031 Aegis note): the select already filters on
+    // NULL, but a manual update racing between select and update must not be clobbered.
+    const { error: updErr } = await admin.from('memory_entries').update({ project_id: pid }).eq('id', row.id).is('project_id', null)
     if (updErr) throw new Error(`update memory_entries "${row.name}" failed: ${updErr.message}`)
     console.log(`  mapped       ${row.name} -> ${project} (${reason})`)
     mapped++
@@ -186,7 +188,7 @@ async function stepC(idByName) {
       continue
     }
     if (DRY) { console.log(`  would-map    ${row.title} -> ${project}`); mapped++; continue }
-    const { error: updErr } = await admin.from('documents').update({ project_id: pid }).eq('id', row.id)
+    const { error: updErr } = await admin.from('documents').update({ project_id: pid }).eq('id', row.id).is('project_id', null)
     if (updErr) throw new Error(`update documents "${row.title}" failed: ${updErr.message}`)
     console.log(`  mapped       ${row.title} -> ${project}`)
     mapped++
@@ -274,7 +276,7 @@ async function stepD(idByName) {
 
   const mnemosynePid = idByName.get('Mnemosyne')
   if (mnemosynePid && mnemosynePid !== 'DRY-RUN-ID') {
-    const { error: linkErr } = await admin.from('memory_entries').update({ project_id: mnemosynePid }).eq('id', row.id)
+    const { error: linkErr } = await admin.from('memory_entries').update({ project_id: mnemosynePid }).eq('id', row.id).is('project_id', null)
     if (linkErr) throw new Error(`linking project_id failed: ${linkErr.message}`)
   }
   console.log(`  ${existing ? 'refreshed' : 'created'}    project-mnemosyne (${row.id})${mnemosynePid ? ` -> linked to Mnemosyne (${mnemosynePid})` : ''}`)

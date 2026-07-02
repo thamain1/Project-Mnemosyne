@@ -1,6 +1,9 @@
 # 0030 — Sonnet work order: projects backfill (thread 0028 decision (d))
 
 - **Opened:** 2026-07-02 (Fable/Atlas)
+- **✅ CLOSED — Aegis data-QC APPROVED in thread `0031`** (2026-07-02). Its one non-blocking note
+  (tighten the UPDATE predicates with `.is('project_id', null)`) applied by Fable same day;
+  dry-run re-verified zero-delta.
 - **Status:** ✅ **DONE (Sonnet 5, 2026-07-02).** `scripts/backfill-projects.mjs` written (dry-run
   capable, idempotent — case-insensitive match-then-create for projects, `project_id IS NULL`-only
   updates for the two backfill steps), run for real, re-run to prove idempotency (0 new/changed rows,

@@ -1,6 +1,10 @@
 # 0027 — P1-HOSTED-MCP + P1-BRIEF: hosted remote MCP server + `brief` bootstrap tool (design)
 
 - **Opened:** 2026-07-02 (Atlas)
+- **✅ CLOSED 2026-07-02 — Aegis FINAL SIGN-OFF in thread `0031`** (APPROVED/COMPLETE: live deploy,
+  key rotation + legacy disable, smokes 19/19+14/14+15/15+60/60, criterion-10 exec-pro e2e both
+  sides). Unit is LIVE at `https://project-mnemosyne.pages.dev/api/mcp`. Remaining items are future
+  enhancements only (browser-client CORS unit; name normalization → P1-HYBRID).
 - **Status:** ✅ **DESIGN APPROVED (Aegis re-review, 2026-07-02) — HANDED TO SONNET 5 FOR
   IMPLEMENTATION.** History: r1 = NOT APPROVED AS-IS (3 blockers) → Atlas r2 resolved all → approved.
   Both Aegis reviews are at the bottom of this doc. **Sonnet: the "Required implementation gate
