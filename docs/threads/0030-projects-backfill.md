@@ -1,9 +1,50 @@
 # 0030 — Sonnet work order: projects backfill (thread 0028 decision (d))
 
 - **Opened:** 2026-07-02 (Fable/Atlas)
-- **Status:** READY FOR SONNET — no design blockers; this is the small data unit queued by the 0028
-  §1 decision ("(b) slug fallback now + (d) projects backfill as its own unit"). The fallback shipped
-  and is live; this unit makes the FK path real and owns nothing else.
+- **Status:** ✅ **DONE (Sonnet 5, 2026-07-02).** `scripts/backfill-projects.mjs` written (dry-run
+  capable, idempotent — case-insensitive match-then-create for projects, `project_id IS NULL`-only
+  updates for the two backfill steps), run for real, re-run to prove idempotency (0 new/changed rows,
+  identical report). Acceptance proven two ways: a dedicated one-off
+  (`scripts/verify-projects-backfill.mjs`, 10/10) against live prod, and the full
+  `scripts/smoke-hosted-mcp.mjs` suite (60/60 — its adaptive fallback probes needed a real fix, see
+  below, not just a rerun). `npm run build` green; `node --check` clean on all changed/new scripts.
+  Committed locally, **not pushed** (push only on Jesse's word, per the work order).
+
+  **Backfill report:**
+  - **Step A (projects seeded):** 14 created, 0 pre-existing. Full canonical roster from the work
+    order, `owner_id` = Jesse's `team_members.id` (resolved by email).
+  - **Step B (memory_entries.project_id):** 44 mapped, 25 left `NULL` (listed with reasons in the
+    script's own output — a mix of "not in the canonical active-builds list" (ArsenalIQ, EagleEye,
+    FastALPR, IntelliCity, IntelliMetrics, IntelliPour, IntelliProperty, Just-As-I-Am, MavenPark,
+    AllSigns, SultanOfSwing, Zodiac, KSOS) and genuine dual-project ambiguity (OnTheHash+Perks
+    crossover/commercial entries) or content-vs-name-prefix mismatches (`mentorapp-multitenant` is
+    actually about Just-As-I-Am; `p2p-website` is an unrelated client, not P2PNow). None guessed.
+  - **Step C (documents.project_id):** 13/13 mapped, 0 left `NULL`. 12 client contracts via
+    title-prefix (OnTheHash ×3, GIAV ×5, Spencer/SpencerLeadGen ×4); the 1 remaining document (the
+    company White Paper) turned out to have `origin='rendered'` — produced by Mnemosyne's OWN
+    Document Factory, not a client deliverable — matching the work order's own hint ("this repo's
+    rendered docs should link") once I caught it; mapped to Mnemosyne. **Found and fixed a bug in my
+    own first pass**: I initially left it `NULL` on title-prefix grounds alone, then re-read the
+    acceptance text, spotted the `origin` signal I'd missed, and re-ran the (idempotent) script to fix
+    it — recorded here rather than silently corrected.
+  - **Step D (Mnemosyne resume entry):** Investigated first (see the script's own header comment for
+    the full root-cause chain): the one bulk `ingest-embed.mjs` run (2026-06-16) captured the file
+    under its PRE-RENAME name (a `project-4ward` entry from that exact batch proves it); the local
+    file was renamed to `project_mnemosyne.md` afterward but the bulk ingest was never re-run.
+    Decision: did NOT re-run the full bulk pipeline (out of scope, would sweep in unrelated stale/
+    renamed files) — created ONE entry via the sanctioned `ingest_memory_entry` RPC instead (file-backed
+    provenance, matching its 69 siblings), body = the current top RESUME bullet (not the full ~100KB
+    historical section — see script comments), linked to the Mnemosyne project row.
+  - **Adaptive-probe fix (found during acceptance, not a regression):** `smoke-hosted-mcp.mjs`'s
+    thread-0028 fallback probes picked `4wardmotion`/`4wardmotion-site-c` by alphabetical-first/prefix
+    search over `memory_entries` alone — now that `projects` is non-empty, those specific names are
+    legitimately resolved by the FK path first (by design, FK wins), so the probes started hitting the
+    wrong branch. Fixed by filtering candidates against live `projects.name` so the probes only ever
+    pick entries the FK path genuinely cannot reach.
+
+  **Out of scope, confirmed untouched:** the slug fallback itself (unchanged, still live for the 25
+  left-`NULL` entries and anything else not in `projects`); `activity_log.entity_id` historical
+  backfill (forward-fixed by the 0027 rider only, per the work order); any CRM bridge work.
 - **Audience:** Sonnet 5. Self-contained per the handoff SOP.
 - **Ground rules:** NO new migration (schema for `projects`, `memory_entries.project_id`,
   `documents.project_id` has existed since `0001_init.sql` — the columns are just empty). This is a

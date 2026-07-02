@@ -280,16 +280,23 @@ async function main() {
   check('brief on an unresolvable project -> structured no_match, not a crash', briefMissResult.error === 'no_match' && Array.isArray(briefMissResult.candidates))
 
   // ---- thread 0028 §1(b) acceptance additions: the memory_slug_fallback path against REAL prod data,
-  //      independent of the synthetic fixture above. ADAPTIVE (2026-07-02 gate-run fix): the original
-  //      hardcoded probes were wrong against real data — "Mnemosyne" has NO kind='project' entry in the
-  //      brain at all (real data gap, queued for the thread-0028 (d) backfill unit), and "intellioptics"
-  //      hit the fallback's EXACT-name-match arm (an entry named exactly `intellioptics` exists), which
-  //      per the 0028 spec correctly WINS — exact match is never ambiguous. So: pick a real
-  //      kind='project' entry from prod and probe with its own name (must resolve via fallback), and
-  //      derive an ambiguous probe as a shared name prefix that exact-matches nothing. ----
+  //      independent of the synthetic fixture above. ADAPTIVE (2026-07-02 gate-run fix, refined again
+  //      after the thread-0030 projects backfill): the original hardcoded probes were wrong against
+  //      real data — "Mnemosyne" had NO kind='project' entry in the brain at all (fixed by 0030), and
+  //      "intellioptics" hit the fallback's EXACT-name-match arm (an entry named exactly
+  //      `intellioptics` exists), which per the 0028 spec correctly WINS — exact match is never
+  //      ambiguous. Post-0030, `projects` is no longer empty, so the FK path now legitimately wins
+  //      (by design) for any candidate whose name is a substring of a seeded project name — a probe
+  //      picked without accounting for that would flake every time the roster grows. Filter candidates
+  //      against live `projects.name` so these probes only ever exercise entries the FK path
+  //      genuinely cannot reach (the ~25 thread-0030 left-NULL entries are exactly this set today). ----
   const { data: projEntries } = await admin.from('memory_entries').select('name').eq('kind', 'project').order('name')
   const projNames = (projEntries ?? []).map((r) => r.name)
-  const realName = projNames[0]
+  const { data: projectRows } = await admin.from('projects').select('name')
+  const projectNamesLower = (projectRows ?? []).map((p) => p.name.toLowerCase())
+  const fkWouldResolve = (candidate) => projectNamesLower.some((pn) => pn.includes(candidate.toLowerCase()))
+  const fallbackOnlyNames = projNames.filter((n) => !fkWouldResolve(n))
+  const realName = fallbackOnlyNames[0]
   if (realName) {
     const briefRealFallback = await call(fullToken, rpcReq('tools/call', { name: 'brief', arguments: { project: realName } }))
     const briefRealResult = JSON.parse(briefRealFallback.json?.result?.content?.[0]?.text ?? '{}')
@@ -301,11 +308,14 @@ async function main() {
   }
 
   // ambiguous probe: find a prefix shared by >1 project entry that is NOT itself an entry name (so the
-  // exact-match arm can't win) and NOT a projects.name — must land in substring-candidates with >1.
+  // exact-match arm can't win), NOT a "project-" prefix, and — post-0030 — would NOT resolve via the
+  // FK path either (else the FK path wins outright with a single match before the fallback's own
+  // ambiguity check ever runs).
   let ambigProbe = null
   for (const n of projNames) {
     for (let cut = n.length - 1; cut >= 4; cut--) {
       const prefix = n.slice(0, cut)
+      if (fkWouldResolve(prefix)) continue
       const hits = projNames.filter((x) => x.includes(prefix))
       if (hits.length > 1 && !projNames.includes(prefix) && !prefix.startsWith('project-')) { ambigProbe = prefix; break }
     }
