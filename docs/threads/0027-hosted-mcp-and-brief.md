@@ -339,3 +339,34 @@ change; `agent./work.` action allowlist for machines) with matching acceptance c
 ### Aegis handoff
 
 Proceed to Sonnet 5 implementation against r2. Aegis will block post-build if any of the required implementation notes above are missed, if the migration is pushed before apply-go, or if the live gate does not prove rotation + existing smokes + new MCP acceptance battery.
+
+---
+
+## Aegis Post-Build QC - 2026-07-02
+
+**Verdict: NOT APPROVED FOR PUSH/APPLY/DEPLOY.** The local 0027/0028 implementation is directionally correct and the keyless build/test gates are green, but two implementation gates from the approved design are still missed. Keep migration `0026_machine_accounts.sql` unapplied and do not push/deploy hosted MCP until the blocking findings below are fixed and re-checked.
+
+### Blocking findings
+
+1. **Smoke/provision cleanup was not fully updated after dropping the `auth.users` FK.** Migration 0026 intentionally removes the old `team_members -> auth.users on delete cascade` path. Several existing smoke scripts still insert `team_members` rows and then clean up only with `admin.auth.admin.deleteUser(...)`, which will leave active orphan/tombstone team rows after 0026. This was explicitly called out as an Aegis implementation gate in the approved design. Affected examples: `scripts/smoke-contact.mjs:57`, `scripts/smoke-crm.mjs:54`, `scripts/smoke-generate-contract.mjs:94`, `scripts/smoke-log-update.mjs:60`, `scripts/smoke-render-document.mjs:67`, `scripts/smoke-save-document.mjs:65`, and `scripts/smoke-usage-telemetry.mjs:59`. Required fix: centralize or update smoke cleanup to delete dependent rows, delete `team_members` where safe, and deactivate if audit/FK rows prevent deletion. `scripts/smoke-save-rendered.mjs` already shows the safer pattern.
+
+2. **The public MCP body-size cap only trusts `Content-Length`.** `functions/api/mcp.ts:171` checks the declared `content-length`, but `functions/api/mcp.ts:193` still calls `req.json()` directly. A chunked/no-content-length request can bypass the 64 KB gate and force parsing before rejection. The approved design required hard caps before expensive parsing/work on the public endpoint. Required fix: read the raw body as text/bytes with a real byte limit, reject oversize bodies before `JSON.parse`, and add a hosted smoke case for oversized body without `Content-Length`.
+
+### Non-blocking findings
+
+- **Machine-token invariant should be enforced, not just documented.** `verify_machine_token` returns `m.kind` from `team_members`, and `functions/api/mcp.ts` accepts any active verified row. Because `machine_tokens` is service-role-only this is not an immediate exploit, but the RPC or endpoint should require `kind='machine'` so a bad provisioning call cannot mint remote MCP access for a human row by mistake.
+- **Browser/client origin scope needs an explicit decision.** The endpoint allows absent Origin plus Project Mnemosyne Pages origins, but not browser-hosted clients such as `https://claude.ai`; it also has no OPTIONS/CORS preflight path. If v1 is CLI/server-side only, document that. If browser clients are in scope, add the required CORS/Origin behavior and smoke it.
+- **Hosted smoke cleanup leaves one telemetry leak.** `scripts/smoke-hosted-mcp.mjs` deletes `rate_limits` and the bucket-machine `team_members` row at lines 289-290, but it does not delete `usage_events` for `bucketMachineId`. Since `usage_events.actor_id` is `on delete set null`, that can leave orphaned smoke telemetry.
+
+### Verified acceptable
+
+- `npm run build` passed locally.
+- All keyless `mcp/test-*.mjs` suites passed locally.
+- New helper scripts passed `node --check` locally.
+- Migration 0026 correctly uses catalog discovery for the existing FK and is held unapplied.
+- The 0028 decision to add `memory_slug_fallback` now and defer projects backfill is acceptable for this phase.
+- Brief redaction-before-truncation, recall/fetch clamps, Worker `TextEncoder`, `source='mcp'`, and rate-limit `Retry-After` changes are acceptable.
+
+### Gate
+
+Fix the two blocking findings, rerun build and keyless tests, then re-submit for Aegis QC before any push/apply/deploy. Service-role key rotation remains mandatory before the first real machine token is issued.
