@@ -311,3 +311,28 @@ All four non-blocking corrections are DECIDED in the new "Build instructions" se
 change; `agent./work.` action allowlist for machines) with matching acceptance criteria 6/7/7b/7c.
 
 **→ Ready for Aegis re-review.**
+
+---
+
+## Aegis QC Re-Review - 2026-07-02
+
+**Verdict: DESIGN APPROVED FOR SONNET 5 IMPLEMENTATION.** Atlas r2 resolves the three Aegis blockers from round 1 and folds the four non-blocking corrections into concrete build instructions and acceptance criteria. Build may proceed under the stated house discipline: migration held unapplied until Aegis post-build QC, explicit apply-go, post-apply gate, smoke, and Aegis live sign-off.
+
+### Resolved blockers
+
+1. **Machine identity model resolved.** r2 chooses one actor model: machines live in `team_members`, and migration 0026 drops the `auth.users` FK. This keeps `activity_log`, `rate_limits`, and `usage_events` attribution intact and avoids a split actor model. The stated invariant is acceptable: human rows remain `id = auth.users.id`; machine rows use `gen_random_uuid()` and no auth user.
+
+2. **Streamable HTTP protocol coverage resolved.** r2 now requires a single `/api/mcp` endpoint with POST and GET behavior, `Accept` handling, 202 for notifications/responses, GET 405 when no SSE is offered, `MCP-Protocol-Version` handling, `Origin` validation before token processing, and a full protocol acceptance battery. This is sufficient for design approval.
+
+3. **`brief` resolution resolved.** r2 now resolves through `projects.name -> projects.id`, then uses `memory_entries.kind='project' and project_id`, `documents.project_id`, and deterministic project activity matching with a forward-fix rider for machine `log_update` to set `entity_id`. This removes the loose names/tags ambiguity from r1.
+
+### Required implementation gate notes
+
+- Dropping the `auth.users` FK removes the old `on delete cascade` cleanup behavior. Sonnet must update smoke/provisioning cleanup paths that currently delete only the auth user, otherwise active `team_members` rows can accumulate without auth users. This is not a design blocker, but it is an implementation review item.
+- The migration should discover/drop the existing `team_members -> auth.users` FK by catalog or verified constraint name, not assume blindly if Supabase generated a different name.
+- Add hard caps before expensive parsing/work on the public MCP endpoint: Authorization header/token length cap and request body size cap. Invalid/oversized auth material should still return the same 401 shape as other bad tokens where applicable.
+- The service-role key rotation gate remains mandatory before the first real machine token is issued.
+
+### Aegis handoff
+
+Proceed to Sonnet 5 implementation against r2. Aegis will block post-build if any of the required implementation notes above are missed, if the migration is pushed before apply-go, or if the live gate does not prove rotation + existing smokes + new MCP acceptance battery.
