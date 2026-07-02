@@ -51,7 +51,7 @@ async function embedQuery(text: string, apiKey: string): Promise<string> {
   } finally { clearTimeout(timer) }
 }
 
-async function generate(prompt: string, apiKey: string): Promise<{ text: string; inputTokens: number | null; outputTokens: number | null }> {
+async function generate(prompt: string, apiKey: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEN_MODEL}:generateContent`
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 45000)
   try {
@@ -69,8 +69,7 @@ async function generate(prompt: string, apiKey: string): Promise<{ text: string;
     const data = await res.json()
     const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text ?? '').join('').trim()
     if (!text) throw new Error('empty generation')
-    const usage = data?.usageMetadata ?? {}
-    return { text, inputTokens: usage.promptTokenCount ?? null, outputTokens: usage.candidatesTokenCount ?? null }
+    return text
   } finally { clearTimeout(timer) }
 }
 
@@ -180,7 +179,6 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const warnings: string[] = []
   const drafted = new Map<string, string>()
 
-  let genInputTokens: number | null = null, genOutputTokens: number | null = null
   if (toDraft.length) {
     const parts: string[] = [GOVERNANCE]
     if (exemplar) parts.push(`\n=== STYLE EXEMPLAR (a prior ${docType.toUpperCase()} — match its tone/structure ONLY; do NOT copy its specific names, figures, or scope) ===\n${exemplar}`)
@@ -190,10 +188,7 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     }
     parts.push('\nNow output each section, wrapped in its <<<SLOT key>>> / <<<ENDSLOT>>> delimiters, in the order listed above. Output nothing outside the delimiters.')
     let genText: string
-    try {
-      const gen = await generate(parts.join('\n'), GEMINI)
-      genText = gen.text; genInputTokens = gen.inputTokens; genOutputTokens = gen.outputTokens
-    } catch { return json({ error: 'generation failed' }, 502) }
+    try { genText = await generate(parts.join('\n'), GEMINI) } catch { return json({ error: 'generation failed' }, 502) }
     const re = /<<<SLOT\s+([a-z_]+)>>>([\s\S]*?)<<<ENDSLOT>>>/g
     let m: RegExpExecArray | null
     while ((m = re.exec(genText)) !== null) {
@@ -233,11 +228,6 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   const scan = scanContract(md)
   for (const h of scan.hits) warnings.push(`Prohibited content (${h.category}): "${h.match}" — review/remove before saving.`)
 
-  context.waitUntil(logUsage(admin, {
-    actorId: uid, tool: 'api/generate-contract', model: toDraft.length ? GEN_MODEL : null,
-    inputTokens: genInputTokens, outputTokens: genOutputTokens,
-    bytesIn: total, bytesOut: md.length,
-  }))
   return json({ doc_type: docType, title: TITLES[docType], markdown: md, sources, warnings, scan_clean: scan.clean })
 }
 // (Only onRequestPost is exported, so CF Pages auto-returns 405 for any non-POST method.)
