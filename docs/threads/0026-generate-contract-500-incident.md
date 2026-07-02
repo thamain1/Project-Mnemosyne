@@ -253,6 +253,9 @@ None of these were conclusively implicated, but they're the candidate difference
 | `e76ce2d` | Switched `await logUsage` → `context.waitUntil(logUsage)` across all 7 endpoints — **did not fix the crash** |
 | `f6694a8` | Reverted `generate-contract.ts` only, back to `788200b` content — **confirmed this fixed it** |
 | `36a1d80` | Docs only (this incident recorded in `docs/threads/0025-usage-telemetry.md`) |
+| `ce39558` | Docs only — this handoff writeup committed |
+| `7907c9b` | **THE FIX** (Fable): re-instrumented WITH the missing `logUsage` import + `tsconfig.functions.json` typecheck wired into `npm run build`. Smoke 14/14 post-deploy. |
+| `687dba7` | Docs close-out: this doc marked RESOLVED, thread `0025` closed at 7/7 |
 
 `git diff 788200b e76ce2d -- functions/api/generate-contract.ts` shows the full crashing version
 (instrumented + waitUntil). `git diff 788200b HEAD -- functions/api/generate-contract.ts` should be
