@@ -1,11 +1,61 @@
-# 0026 — INCIDENT: /api/generate-contract crashes in prod when instrumented (open, root cause unknown)
+# 0026 — INCIDENT: /api/generate-contract crashes in prod when instrumented (RESOLVED)
 
 - **Opened:** 2026-07-02 (Sonnet 5, during thread 0025 P5-TELEMETRY build)
-- **Status:** OPEN — handed to Fable for investigation. `generate-contract.ts` is currently reverted
-  to its pre-incident, un-instrumented state and confirmed working. This doc is everything needed to
-  reproduce and continue the investigation without re-deriving context.
-- **Severity:** Was P0 (live sales-factory endpoint down); now P2 (endpoint restored, but the P5-TELEMETRY
-  unit can't close until this is fixed and generate-contract is re-instrumented).
+- **Status:** ✅ **RESOLVED 2026-07-02 (Fable), commit `7907c9b`** — root cause found by static
+  review, fixed, re-instrumented, verified live (smoke 14/14). See "ROOT CAUSE + RESOLUTION" below.
+- **Severity:** Was P0 (live sales-factory endpoint down); closed at P2 (endpoint had been restored
+  by revert; now re-instrumented and fully working).
+
+## ROOT CAUSE + RESOLUTION (2026-07-02, Fable)
+
+**Root cause: the instrumented `generate-contract.ts` called `logUsage(...)` without importing it.**
+Both crashing commits (`053f956` and `e76ce2d`) have exactly four imports — `@supabase/supabase-js`,
+`contract-templates`, `contract-scan`, `rate-limit` — and **no `import { logUsage } from
+'../_lib/usage'`**. All six working endpoints have that import (e.g. `ask-docs.ts:15`). One missing
+line, endpoint-specific by construction.
+
+Why every observed symptom follows:
+
+- **Happy-path-only crash:** validation/auth failures return before the `logUsage` call site; only
+  requests that reach the end of the handler evaluate the undefined identifier →
+  `ReferenceError: logUsage is not defined` → uncaught → CF error 1101 ("Worker threw exception" —
+  the code was telling the truth; it never was a platform limit).
+- **`waitUntil` non-fix:** `context.waitUntil(logUsage(...))` evaluates the bare identifier
+  `logUsage` *synchronously* to build the argument — the ReferenceError fires before `waitUntil`
+  itself ever runs. Identical crash by necessity, not coincidence.
+- **100% deterministic both directions:** presence/absence of the line, nothing environmental.
+- **Why the build shipped it:** CF Pages bundles `functions/` with esbuild, which does NOT resolve
+  bare identifiers — an undefined name is emitted as a global lookup that fails at runtime. And
+  `npm run build`'s `tsc -b` covers only `src/` (tsconfig.app) + the vite config (tsconfig.node);
+  **`functions/` was type-checked by nothing.** A syntax error would have failed the build; a missing
+  import is invisible to it.
+- (Unexplained but now moot: `wrangler pages deployment tail` captured nothing for the failing
+  requests — Pages tail is evidently lossy for this error class. Do not rely on it to rule out
+  application exceptions.)
+
+**Fix (`7907c9b`):**
+1. Re-applied the full 0025 instrumentation (usageMetadata capture + `context.waitUntil(logUsage(...))`)
+   **with the import**.
+2. **Prevention:** added `tsconfig.functions.json` (strict, noEmit, whole `functions/` tree) and wired
+   it into `npm run build` (`tsc -b && tsc -p tsconfig.functions.json && vite build`). Proof it would
+   have caught this P0 pre-push: the crashing version fails it with
+   `error TS2304: Cannot find name 'logUsage'`; the current tree passes clean.
+
+**Verification (live prod, post-deploy):** `scripts/smoke-usage-telemetry.mjs` **14/14** (was 12/14
+with 2 known-fails) — generate-contract returns 200 with real markdown on the exact repro payload AND
+writes a `usage_events` row with real provider tokens (`input_tokens=523, output_tokens=248,
+model=gemini-2.5-flash, bytes_out=17597`).
+
+**Post-mortem note for the working model:** Sonnet's investigation was rigorous (clean hypothesis
+tests, full-deploy verification, honest revert) but the static review missed the import list — it
+reviewed the *diff*, which doesn't show unchanged import lines, and reasoned "the same helper works in
+6 endpoints" without diffing the import blocks across files. Lesson: when a symbol "works everywhere
+except one file", diff the import blocks first — it's a 30-second check that beats any runtime
+hypothesis. The lasting fix is structural (the typecheck), not procedural.
+
+---
+
+*Original investigation record below, kept as-was for archaeology.*
 
 ## TL;DR
 

@@ -1,18 +1,28 @@
 # 0025 — P5-TELEMETRY: usage + token telemetry (design)
 
 - **Opened:** 2026-07-01 (Atlas)
-- **Status:** LIVE for 6/7 endpoints + MCP + dashboard (2026-07-02, Sonnet 5). `generate-contract` is
-  temporarily UN-INSTRUMENTED after a P0 prod incident (see "Incident" below) — root cause not yet
-  found. Migrations `0024`+`0025` applied to prod. `npm run build` green. Live smoke
-  (`scripts/smoke-usage-telemetry.mjs`) run against prod: 12/14 pass, 2 known-fail
-  (generate-contract's usage-row checks, expected given the revert).
+- **Status:** ✅ **CLOSED — LIVE for 7/7 endpoints + MCP + dashboard** (2026-07-02). The
+  `generate-contract` incident is RESOLVED (root cause = missing `logUsage` import — full story in
+  thread `0026`); re-instrumented in commit `7907c9b` and verified live: smoke
+  (`scripts/smoke-usage-telemetry.mjs`) **14/14** against prod, generate-contract usage row shows real
+  provider tokens (input 523 / output 248 on the repro payload). Migrations `0024`+`0025` applied.
 - **Unit:** P5-TELEMETRY from thread `0024` Pillar 5. Sequence position: step 2 (after the hygiene
   sprint, BEFORE any optimization it is meant to judge).
 - **Working model:** Atlas plans (this doc) → Aegis QC → Sonnet 5 implements → gate → smoke → live.
 - **Migration number:** `0024_usage_telemetry.sql` (0023 = rate limiting); `0025_usage_events_grant_fix.sql`
   is a same-day follow-up (see Build notes).
 
-## Incident (2026-07-02) — generate-contract 500, root cause NOT yet found
+## Incident (2026-07-02) — generate-contract 500 — RESOLVED, see thread 0026
+
+> **Resolution (2026-07-02, Fable):** root cause was a **missing `import { logUsage } from
+> '../_lib/usage'`** in `generate-contract.ts` only (the other 6 endpoints had it). esbuild (CF's
+> functions bundler) ships bare identifiers as global lookups, so the deploy succeeded and threw
+> `ReferenceError` at runtime — but only on the happy path that reaches the `logUsage` line, which is
+> why validation 400s worked. `waitUntil` couldn't fix it: the bare identifier is evaluated
+> synchronously before `waitUntil` runs. Fixed + re-instrumented in `7907c9b`, which also adds
+> `tsconfig.functions.json` to `npm run build` (functions/ previously had ZERO typecheck coverage —
+> the crashing version fails the new check with TS2304). The section below is the original
+> investigation record, kept as-was.
 
 Pushing the `log_usage` instrumentation broke `/api/generate-contract` in production: every call on
 the happy path returned a raw Cloudflare 500 ("Worker threw exception", CF error 1101) instead of the
@@ -81,8 +91,9 @@ are live and confirmed working. This is an open item, not closed — see thread 
   pattern to extend. Built the keyless equivalent instead (`mcp/test-usage.mjs`, 5/5 passing) covering
   `logMcpUsage`'s RPC shape, actor-null coercion, and best-effort swallow-on-error. The live DB write
   path itself (`log_usage` grants) IS exercised live by `smoke-usage-telemetry.mjs` criterion 1c.
-- **Open item:** find the real root cause of the `generate-contract` crash and re-instrument it. Needs
-  either working `wrangler tail` output for a CF-1101-class error, or an isolated bisection test.
+- ~~**Open item:** find the real root cause of the `generate-contract` crash and re-instrument it.~~
+  **DONE 2026-07-02** (`7907c9b`, thread `0026`): missing import, re-instrumented, smoke 14/14 —
+  generate-contract is now the second `generateContent` proof point with real token counts (523/248).
 
 ## Why (one paragraph)
 
