@@ -110,14 +110,26 @@ const MISSING_FUNCTION_RE = /42883|schema cache|does not exist|could not find/i
 // of whether migration 0027 has been applied to that machine's target DB yet. The fallback makes this
 // code safe to have on disk at any point relative to the migration, and it self-upgrades to hybrid
 // the moment the function exists — no second manual "switch" step needed for this path.
+//
+// Fix round (Aegis post-build QC, 2026-07-02 — non-blocking note, adopted as the stricter fix): the
+// fallback above is fine for an UNFILTERED query (recall_memory has no filters to lose). But if the
+// caller asked for a filtered query (kind/project_id/client_id/deal_id) and the hybrid function is
+// missing, silently falling back to unfiltered recall_memory would return real-looking results that
+// quietly ignore every filter the caller asked for — a correctness lie to the calling agent, not a
+// degraded-but-honest result. So: filtered queries get a structured error instead of a silent
+// fallback; only genuinely unfiltered queries fall back.
 export async function runRecall(args, { embedQuery, rpc }) {
   const { query, k, kind, project_id, client_id, deal_id } = validateArgs(args)
+  const hasFilter = kind !== undefined || project_id !== undefined || client_id !== undefined || deal_id !== undefined
   const query_embedding = await embedQuery(query)
   let { data, error } = await rpc('recall_memory_hybrid', {
     p_query: query, p_embedding: query_embedding, p_match_count: k,
     p_kind: kind ?? null, p_project_id: project_id ?? null, p_client_id: client_id ?? null, p_deal_id: deal_id ?? null,
   })
   if (error && MISSING_FUNCTION_RE.test(error.message || '')) {
+    if (hasFilter) {
+      throw new Error('recall: hybrid recall (needed for kind/project_id/client_id/deal_id filters) is not yet available on this database — retry without filters, or wait for migration 0027 to apply')
+    }
     ;({ data, error } = await rpc('recall_memory', { query_embedding, match_count: k }))
   }
   if (error) throw new Error(`recall error: ${error.message}`)

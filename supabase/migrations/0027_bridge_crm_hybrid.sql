@@ -22,6 +22,13 @@
 --      detail object is a string or number, satisfying the flatness constraint exactly as written,
 --      with zero change to that check. A `stale_count` field carries the count without needing to
 --      parse the string. Consumers (the Activity feed, `brief`) JSON.parse `deals_json` client-side.
+--
+-- Fix round (Aegis post-build QC, 2026-07-02 — 1 blocker, fixed before apply/push):
+--   `ingest_memory_entry`'s ON CONFLICT clause originally always overwrote client_id/deal_id from the
+--   incoming payload, so a canonical memory/*.md re-ingest that omits bridge fields would silently
+--   unlink the entry from its client/deal. Fixed to mirror update_memory's omitted-vs-explicit-null
+--   convention: key absent -> preserve existing link; key present (even as null) -> apply the new
+--   value. See A2 inline comment at the ON CONFLICT clause.
 
 -- ═══════════════════════════════════ PART A — P2-BRIDGE ═══════════════════════════════════════════
 
@@ -116,10 +123,18 @@ begin
     case when v_has_chunks then null else (v_emb)::public.vector end,
     v_client_id, v_deal_id
   )
+  -- fix round (Aegis post-build QC, 2026-07-02): client_id/deal_id use the SAME omitted-vs-explicit-
+  -- null convention as update_memory (lines ~224-228) — a key ABSENT from payload preserves whatever
+  -- link the row already has; a key PRESENT (including present-with-null) applies the new value. A
+  -- source-file re-ingest that doesn't mention bridge fields must never silently unlink a memory from
+  -- its client/deal.
   on conflict (name) do update set
     kind = excluded.kind, title = excluded.title, body = excluded.body, links = excluded.links,
     source_path = excluded.source_path, embedding_model = excluded.embedding_model,
-    embedding = excluded.embedding, client_id = excluded.client_id, deal_id = excluded.deal_id, updated_at = now()
+    embedding = excluded.embedding,
+    client_id = case when payload ? 'client_id' then excluded.client_id else public.memory_entries.client_id end,
+    deal_id   = case when payload ? 'deal_id'   then excluded.deal_id   else public.memory_entries.deal_id   end,
+    updated_at = now()
     where public.memory_entries.source_path ~ '^memory/'
   returning id into v_id;
   if v_id is null then raise exception 'ingest_memory_entry: name "%" collides with a non-file (operator/mcp) entry', v_name; end if;

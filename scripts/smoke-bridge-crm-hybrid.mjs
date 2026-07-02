@@ -193,6 +193,36 @@ async function main() {
       p_payload: { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp}`, body: bridgeBody, links: [], embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [], deal_id: dealId },
       p_actor: memberUid, p_audit: {}, p_expected_updated_at: curRow.updated_at,
     })
+
+    // fix round (Aegis post-build QC, 2026-07-02): ingest_memory_entry's ON CONFLICT must use the SAME
+    // omitted-vs-explicit-null convention as update_memory — a re-ingest that OMITS client_id/deal_id
+    // keys must PRESERVE the entry's existing links (a canonical memory/*.md re-ingest must never
+    // silently unlink a memory from its client/deal); a re-ingest with an EXPLICIT null must CLEAR it.
+    // Both directions go through the same ON CONFLICT branch, so both must bump updated_at.
+    const baseIngestPayload = { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp} v2`, body: bridgeBody, links: [], source_path: `memory/${memName}.md`, embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [] }
+
+    // (a) re-ingest WITHOUT client_id/deal_id keys at all -> both links preserved, updated_at bumped
+    const beforeOmit = (await admin.from('memory_entries').select('updated_at, client_id, deal_id').eq('id', memId).maybeSingle()).data
+    const reingestOmit = await admin.rpc('ingest_memory_entry', { payload: baseIngestPayload })
+    check('re-ingest omitting client_id/deal_id -> no error', !reingestOmit.error, reingestOmit.error?.message)
+    const afterOmit = (await admin.from('memory_entries').select('updated_at, client_id, deal_id').eq('id', memId).maybeSingle()).data
+    check('re-ingest omitting bridge keys PRESERVES client_id', afterOmit?.client_id === beforeOmit?.client_id && afterOmit?.client_id === clientId, JSON.stringify(afterOmit))
+    check('re-ingest omitting bridge keys PRESERVES deal_id', afterOmit?.deal_id === beforeOmit?.deal_id && afterOmit?.deal_id === dealId, JSON.stringify(afterOmit))
+    check('re-ingest omitting bridge keys still bumps updated_at', afterOmit?.updated_at !== beforeOmit?.updated_at)
+
+    // (b) re-ingest WITH explicit client_id: null (deal_id key still absent) -> client_id CLEARED, deal_id preserved
+    const reingestClear = await admin.rpc('ingest_memory_entry', { payload: { ...baseIngestPayload, client_id: null } })
+    check('re-ingest w/ explicit client_id:null -> no error', !reingestClear.error, reingestClear.error?.message)
+    const afterClear = (await admin.from('memory_entries').select('updated_at, client_id, deal_id').eq('id', memId).maybeSingle()).data
+    check('re-ingest w/ explicit null CLEARS client_id', afterClear?.client_id === null, JSON.stringify(afterClear))
+    check('re-ingest w/ explicit null on client_id still PRESERVES deal_id (key absent)', afterClear?.deal_id === dealId, JSON.stringify(afterClear))
+    check('re-ingest w/ explicit null still bumps updated_at', afterClear?.updated_at !== afterOmit?.updated_at)
+
+    // restore client_id for later client_360/hybrid-filter tests
+    const restoreIngest = await admin.rpc('ingest_memory_entry', { payload: { ...baseIngestPayload, client_id: clientId, deal_id: dealId } })
+    check('re-ingest restoring both links -> no error', !restoreIngest.error, restoreIngest.error?.message)
+    const afterRestore = (await admin.from('memory_entries').select('client_id, deal_id').eq('id', memId).maybeSingle()).data
+    check('bridge fixture restored to client_id+deal_id set for downstream checks', afterRestore?.client_id === clientId && afterRestore?.deal_id === dealId, JSON.stringify(afterRestore))
   }
 
   // client_360

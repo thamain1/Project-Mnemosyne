@@ -86,6 +86,35 @@ await accepts('runRecall falls back to recall_memory when hybrid function is mis
   if (calls.join(',') !== 'recall_memory_hybrid,recall_memory') throw new Error('call order: ' + calls.join(','))
   if (!/y \(reference\)/.test(out)) throw new Error('fallback result not formatted: ' + out)
 })
+await throws('runRecall REFUSES to silently fall back when a filter is present (fix round, 2026-07-02) — kind', async () => {
+  const rpc = async (n) => (n === 'recall_memory_hybrid' ? { data: null, error: { message: 'Could not find the function public.recall_memory_hybrid in the schema cache' } } : { data: [{ name: 'unfiltered-leak' }], error: null })
+  await runRecall({ query: 'q', kind: 'project' }, { embedQuery: mockEmbed, rpc })
+})
+await throws('runRecall REFUSES to silently fall back when a filter is present — client_id', async () => {
+  const rpc = async (n) => (n === 'recall_memory_hybrid' ? { data: null, error: { message: 'Could not find the function public.recall_memory_hybrid in the schema cache' } } : { data: [{ name: 'unfiltered-leak' }], error: null })
+  await runRecall({ query: 'q', client_id: UUID }, { embedQuery: mockEmbed, rpc })
+})
+await accepts('runRecall filtered-fallback error message names the missing-function cause, not a generic error', async () => {
+  const rpc = async (n) => (n === 'recall_memory_hybrid' ? { data: null, error: { message: 'Could not find the function public.recall_memory_hybrid in the schema cache' } } : { data: [], error: null })
+  try {
+    await runRecall({ query: 'q', deal_id: UUID }, { embedQuery: mockEmbed, rpc })
+    throw new Error('expected rejection')
+  } catch (e) {
+    if (!/hybrid recall.*not yet available/i.test(e.message)) throw new Error('unexpected message: ' + e.message)
+  }
+})
+await accepts('runRecall STILL falls back for a genuinely unfiltered query even with the stricter check', async () => {
+  const calls = []
+  const rpc = async (n) => {
+    calls.push(n)
+    return n === 'recall_memory_hybrid'
+      ? { data: null, error: { message: 'Could not find the function public.recall_memory_hybrid in the schema cache' } }
+      : { data: [{ name: 'y', title: 'old', kind: 'reference', source_path: 'memory/y.md', similarity: 0.5, updated_at: '2026-01-01', matched_via: 'entry' }], error: null }
+  }
+  const out = await runRecall({ query: 'q' }, { embedQuery: mockEmbed, rpc })
+  if (calls.join(',') !== 'recall_memory_hybrid,recall_memory') throw new Error('call order: ' + calls.join(','))
+  if (!/y \(reference\)/.test(out)) throw new Error('fallback result not formatted: ' + out)
+})
 await throws('runRecall does NOT fall back on a real (non-missing-function) hybrid error', async () => {
   const rpc = async (n) => (n === 'recall_memory_hybrid' ? { data: null, error: { message: 'permission denied for function recall_memory_hybrid' } } : { data: [], error: null })
   await runRecall({ query: 'q' }, { embedQuery: mockEmbed, rpc })

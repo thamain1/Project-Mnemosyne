@@ -1,11 +1,13 @@
 # 0032 — P2-BRIDGE + P2-CRM + P1-HYBRID: lead-gen foundation (design)
 
 - **Opened:** 2026-07-02 (Atlas/Fable)
-- **Status:** 🟡 **IMPLEMENTATION COMPLETE (Sonnet 5, 2026-07-02) — AWAITING AEGIS POST-BUILD QC.**
-  History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved → Sonnet built against r2.
-  Both design reviews at bottom; Sonnet's implementation report is appended at the very end of this
-  doc. Migration `0027_bridge_crm_hybrid.sql` is **written but UNAPPLIED** — still gated behind Aegis
-  post-build QC + Jesse's explicit apply-go, per the standing 0024 rule. Nothing has been pushed.
+- **Status:** 🟡 **FIX ROUND COMPLETE (Sonnet 5, 2026-07-02) — AWAITING AEGIS RE-QC.**
+  History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved → Sonnet built → Aegis
+  post-build QC = NOT APPROVED (1 blocker: `ingest_memory_entry` link-wipe on re-ingest) → Fable
+  fix-round decisions (binding) → Sonnet executed the fix round. Both design reviews, the post-build
+  QC, Fable's fix-round decisions, and Sonnet's implementation + fix-round reports are all appended at
+  the end of this doc. Migration `0027_bridge_crm_hybrid.sql` is **written but UNAPPLIED** — still
+  gated behind Aegis re-QC + Jesse's explicit apply-go, per the standing 0024 rule. Nothing pushed.
 - **Unit:** roadmap thread `0024` recommended-sequence step 4 ("lead-gen foundation, immediately
   useful to the team"). **P5-FETCH-SCOPE rides with HYBRID** per the roadmap. Two small UI riders
   from Jesse's 2026-07-02 concept direction (see "UI riders" — `docs/UIandAgentIdeal.md`,
@@ -421,3 +423,46 @@ slow-rot defect this QC exists to catch. Decisions so nothing is guessed:
 **Sonnet close-out per SOP:** rerun `npm run build` + all keyless `mcp/test-*.mjs` + `node --check`
 on changed files; commit locally w/ explicit paths (NO push — migration still unapplied); brain-log;
 update this doc's status line; stop for Aegis re-QC.
+
+---
+
+## Sonnet 5 Fix-Round Report — 2026-07-02
+
+All 3 fix-round decisions executed against the UNAPPLIED migration:
+
+1. **Blocker fix.** `supabase/migrations/0027_bridge_crm_hybrid.sql`, `ingest_memory_entry`'s
+   `on conflict (name) do update set` clause now uses Aegis's exact omitted-vs-explicit-null
+   semantics, mirroring `update_memory`: `client_id = case when payload ? 'client_id' then
+   excluded.client_id else public.memory_entries.client_id end` (same pattern for `deal_id`). A
+   re-ingest that omits bridge keys preserves the existing link; a re-ingest with an explicit
+   `client_id: null`/`deal_id: null` clears it. Documented inline at the ON CONFLICT clause and in
+   the migration's header decision-log.
+2. **Smoke coverage, both directions.** `scripts/smoke-bridge-crm-hybrid.mjs` §2 (Bridge) now covers,
+   against the live fixture entry: (a) re-ingest omitting both keys → both links preserved + `updated_at`
+   bumped; (b) re-ingest with explicit `client_id: null` (deal_id key still absent) → `client_id`
+   cleared, `deal_id` preserved + `updated_at` bumped again; then restores both links for the
+   downstream `client_360`/hybrid-filter checks later in the script. Not yet run live — same
+   precondition as before (migration unapplied).
+3. **Stricter fallback, adopted.** `mcp/lib/recall-core.mjs`'s `runRecall` now refuses to silently
+   fall back to the old `recall_memory` when ANY filter (`kind`/`project_id`/`client_id`/`deal_id`) is
+   present and the hybrid function is missing — it throws a structured error naming the cause instead
+   of returning unfiltered results as if they were filtered. Genuinely unfiltered queries still fall
+   back exactly as before. `mcp/test-recall.mjs` gained 4 new cases proving: filtered+missing-function
+   rejects (kind and client_id variants), the error message names the real cause, and the unfiltered
+   fallback path still works unchanged (43/43 recall tests passing, up from 39).
+
+**Verification (2026-07-02, fix round):**
+- `npm run build` — green.
+- All `mcp/test-*.mjs` green: fetch 75/75, getsecret 17/17, log 34/34, recall 43/43 (+4 new), remember
+  60/60, update 42/42, usage 5/5 — 276/276 total, no regressions.
+- `node --check` clean on the 3 changed files (migration is SQL, not checked this way; syntax
+  reviewed by hand against the existing `update_memory` pattern it mirrors).
+
+**Not run / cannot verify from this environment:** live DB checks (migration still unapplied) —
+the new smoke assertions in §2 will execute for the first time post-apply, same as the rest of the
+battery.
+
+**Next steps (unchanged from before the fix round):** Aegis re-QC → Jesse apply-go → apply migration
+0027 → run both smoke batteries live → confirm old `recall_memory(vector,int)` still serves deployed
+code → push → re-run both smoke batteries against the pushed deploy → Aegis live sign-off → capture UI
+rider screenshot/video.
