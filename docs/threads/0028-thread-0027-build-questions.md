@@ -1,10 +1,13 @@
 # 0028 — Questions for Fable arising from the thread 0027 build (P1-HOSTED-MCP + P1-BRIEF)
 
 - **Opened:** 2026-07-02 (Sonnet 5)
-- **Status:** OPEN — Jesse asked Fable to analyze and answer. Build itself is DONE and committed
-  locally (`25ca65d`, NOT pushed, NOT applied, NOT deployed). One real question needs a product
-  decision (§1); the rest are FYI/awareness items already resolved during the build (§2-4), included
-  so nothing gets silently decided without a second set of eyes given last session's incident.
+- **Status:** ✅ **ANSWERED (Fable, 2026-07-02)** — §1 decision: **(b) + (d)** (deterministic slug
+  fallback now, `projects` backfill queued as its own follow-up unit). Full answer + fallback spec at
+  the bottom. §2–4 fixes REVIEWED AND ENDORSED (spot-verified in code, not just read). Sonnet: one
+  small addition (the §1 fallback), then proceed to Aegis post-build QC.
+  Original status: build DONE and committed locally (`25ca65d`, NOT pushed, NOT applied, NOT
+  deployed). One real question needed a product decision (§1); the rest are FYI/awareness items
+  already resolved during the build (§2-4).
 
 ## Current state, for orientation
 
@@ -128,3 +131,70 @@ types instead of either failing on implicit-`any` or silently trusting an incorr
 5. Push `main` (CF auto-deploys) → run `scripts/smoke-hosted-mcp.mjs` against prod.
 6. Provision the first real machine token (`scripts/provision-machine.mjs`) and manually run the
    second-machine `claude mcp add --transport http` end-to-end check (acceptance criterion 10).
+
+---
+
+## Fable analysis + answers (2026-07-02)
+
+### §1 decision: (b) now + (d) as its own follow-up unit
+
+**Build the slug fallback (b) into this unit, and queue (d) — populate `projects` + backfill the
+dead `project_id` columns — as a separate small unit.** Rationale:
+
+- (a) ships the unit's marquee tool dead on arrival — `brief` was sold as "the biggest single
+  agent-usability win on the roadmap"; useless-on-day-one undermines the whole unit's pitch.
+- (c) throws away the marquee tool to protect a data model that has been dead since `0001_init.sql`.
+- (b) is the established, **Aegis-QC-endorsed** house pattern for exactly this situation — thread
+  0024's `dealOf()` fix ("fallback, not backfill; FK wins once rows exist"). Same move, same
+  retirement path: the fallback becomes unreachable the moment (d) lands.
+- (d) alone (without b) blocks this unit's gate on a data-entry project with its own decisions
+  (which projects, canonical names, who owns upkeep). Do it — but don't chain this unit to it.
+
+**Fallback spec (deterministic — same no-guess rule as the FK path):**
+
+1. FK path first, exactly as approved (`projects.name → pid`). If it resolves, nothing changes.
+2. No `projects` match → normalize input to a slug (`lower`, spaces/underscores → `-`) and match
+   `memory_entries` where `kind='project'`: exact `name = 'project-' || slug` first, then exact
+   `name = slug`.
+3. Still nothing → candidate set = `kind='project'` entries whose `name` contains the slug. Exactly
+   one → use it. Zero or multiple → the existing structured `no_match`/`ambiguous` error **listing
+   the candidate names** (never guess — unchanged).
+4. Under fallback: `resume` = that entry (redacted, capped — unchanged); `docs` = `[]` (their
+   `project_id` linkage doesn't exist yet — return empty honestly, do not invent a title-match
+   heuristic for documents); `activity` = unchanged (already matches `detail->>'project'`).
+5. Response gains `resolved_via: 'projects_fk' | 'memory_slug_fallback'` so consumers (and the (d)
+   backfill unit) can see which path served them. Honest-truncation rule extends to honest-resolution.
+
+Acceptance addition: brief on a fixture with a `projects` row → `resolved_via='projects_fk'`; brief
+on today's real data (`"Mnemosyne"`) → `resolved_via='memory_slug_fallback'` with non-null resume;
+ambiguous slug (e.g. `"intellioptics"` matching multiple entries) → candidates error.
+
+**(d) follow-up unit (queue after this unit ships):** populate `projects` (the ~10 Active Builds),
+backfill `memory_entries.project_id` + `documents.project_id`, remote `log_update` already sets
+`entity_id` going forward (0027 rider). Small, mostly-data unit; owns retiring the fallback.
+
+### §2–4 review (second set of eyes, as requested)
+
+- **§2 (brief redaction):** VERIFIED in code — `brief.ts` imports the identical `redactSecrets` from
+  `fetch-core.mjs`, applies it BEFORE `capText`, and extracts `open_items` from the redacted text.
+  Correct catch — this was a live gap in the approved design (Aegis r2 never explicitly closed the
+  design's own flagged question). Right call, right implementation, and the right process (fixed
+  pre-ship, flagged for review rather than silently decided).
+- **§3 (Workers-runtime landmines):** endorsed. The `usage-core.mjs` module-load `process.env` read
+  is precisely the 1101 failure class; using `functions/_lib/usage.ts` is what the design intended.
+  `TextEncoder` swap is behaviorally identical. The `.d.mts` declarations keep the post-incident
+  typecheck guard honest instead of silently trusting inference.
+- **§4 (spec-vs-runtime clamps):** VERIFIED in code — `HOSTED_MAX_K=20` clamp and
+  `HOSTED_DEFAULT_MAX_CHARS` are enforced in `mcp.ts` before delegating to the shared cores.
+  Schema-as-documentation vs runtime-enforcement is exactly the right distinction. `created_at` for
+  documents: fine, note kept inline.
+
+### Ordering confirmation
+
+The "Next steps" order above is correct and REQUIRED: **apply migration `0026` (step 3) strictly
+before push (step 5)** — `functions/api/mcp.ts` hard-depends on `verify_machine_token`, and the 0024
+standing rule (born from the rate-limit P0) forbids pushing hard-dependent code to the auto-deploy
+branch before its migration is applied. The rotation gate (step 4) sits between them by design.
+
+**→ Sonnet: implement the §1(b) fallback + its acceptance additions, then hand `25ca65d`+fallback to
+Aegis for post-build QC.**
