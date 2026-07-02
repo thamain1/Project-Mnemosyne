@@ -394,3 +394,43 @@ nothing is guessed mid-fix:
 Push/apply/deploy remain blocked until Aegis re-QC passes. `main` stays local-ahead until then —
 the deliberate consequence of the apply-before-push rule, resolved by finishing the gate, not by
 pushing early.
+
+---
+
+## GATE EXECUTED — 2026-07-02 (Fable, on Aegis approval + Jesse go)
+
+Aegis re-QC passed (relayed via Jesse) → gate order executed. **All steps complete; unit is LIVE.**
+
+1. **Migration `0026` APPLIED** (Management API). Post-apply gate proven: `auth.users` FK gone; 11
+   humans backfilled `kind='human'` + remote scopes; every human row still joins `auth.users` 1:1;
+   `machine_tokens` RLS on, zero client grants/privileges; `verify_machine_token` service_role-only;
+   7 live semantic checks passed (valid→row+`last_used_at` bump; revoked/expired/human-row/bad-shape/
+   unknown → empty). Fixture cleaned.
+2. **Service-role key ROTATED.** New `sb_secret` key minted via Management API and piped DIRECTLY
+   into the CF Pages secret (plaintext never on disk, never in transcript); local `.env.local` +
+   `mcp/.env.local` patched in place; key verified live. **Legacy JWT keys (incl. the leaked
+   service_role) DISABLED** via Management API after smokes proved nothing depends on them — the
+   leaked key is dead, not just superseded. Frontend + functions confirmed on publishable/new keys.
+3. **Pushed + deployed** (`c2ac7bc` backlog + gate-run fixes). Ordering note: Aegis's list had push
+   last, but push IS the redeploy on this git-connected project and the hosted-MCP smoke requires the
+   deployed code; 0026 was applied first so the 0024 rule held. Jesse authorized explicitly.
+4. **Two gate-run defects found and fixed (Fable):**
+   - `83b859b` — `usage.ts` hardcoded `p_source='endpoint'`, so hosted telemetry violated the 0029
+     `source='mcp'` decision; `UsageEvent` gained an optional `source`. Also the two hardcoded
+     real-data brief probes were wrong vs prod (no `kind='project'` entry for Mnemosyne exists AT ALL
+     — real data gap, queued for the 0028 (d) backfill unit; `intellioptics` exact-matched per spec,
+     never ambiguous) — probes now derived from live data at run time.
+   - `be0d09e` — hosted telemetry STILL zero rows: `context.waitUntil`-deferred `logUsage` never
+     lands on this route (empirical: awaited `rate_take` on the same client in the same handler
+     writes fine; `waitUntil`+`logUsage` works in `onRequestPost` handlers). Fix: telemetry write is
+     now AWAITED in `mcp.ts` (logUsage swallows all errors → cannot fail the request; ~100-200ms).
+     ⚠️ Runtime lesson: do not trust `waitUntil` on this endpoint without a landed-row check.
+5. **Full live smoke record, post-rotation AND post-legacy-disable:** render **19/19**, telemetry
+   **14/14**, log-update **15/15**, hosted MCP **60/60** (transport battery, auth/no-oracle,
+   scoping, caps incl. chunked-body 413, brief incl. real-data fallback + honest truncation,
+   redaction-before-truncation, per-machine rate buckets + Retry-After, machine action allowlist +
+   entity_id rider, revocation mid-session, telemetry source='mcp').
+
+**Remaining (not code):** Aegis live sign-off on this record → provision first real `mnk_` token
+(`scripts/provision-machine.mjs`) → manual second-machine `claude mcp add --transport http` e2e
+(acceptance criterion 10).
