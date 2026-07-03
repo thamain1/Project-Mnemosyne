@@ -122,24 +122,35 @@ export const BRAND_CSS = `
 // hasGenerator: whether a {{fill}}/{{draft}} skeleton exists today (mou/sow do, via contract-templates.ts).
 //   The render layout applies to ALL types; generation skeletons for the rest land in Phase C.
 export type DocCategory = 'contract' | 'marketing'
+export type DocAudience = 'client' | 'internal'
 export interface DocTypeSpec {
   id: string
   label: string
   category: DocCategory
+  // Structural audience boundary (thread 0033 P2-LOOP, Aegis-preferred shape): which audience values
+  // this type may EVER render/save as. Enforced server-side in render-document.ts/save-rendered-
+  // document.ts BEFORE the governance scan — `category` stays two-valued (it only drives scan policy);
+  // this is the orthogonal permission axis. Every pre-0033 type keeps both values (zero behavior
+  // change); `client-brief` is the first type ever restricted to a single value.
+  allowedAudiences: DocAudience[]
   renderTitle: string   // default <title>/H-context for the rendered document
   hasGenerator: boolean
 }
 
 export const DOC_TYPE_CATALOG: DocTypeSpec[] = [
-  { id: 'mou',                label: 'Memorandum of Understanding', category: 'contract',  renderTitle: 'Memorandum of Understanding — 4ward Motion Solutions, Inc.', hasGenerator: true },
-  { id: 'sow',                label: 'Statement of Work',           category: 'contract',  renderTitle: 'Statement of Work — 4ward Motion Solutions, Inc.',           hasGenerator: true },
-  { id: 'proposal',           label: 'Proposal',                    category: 'contract',  renderTitle: 'Proposal — 4ward Motion Solutions, Inc.',                    hasGenerator: false },
-  { id: 'invoice',            label: 'Invoice',                     category: 'contract',  renderTitle: 'Invoice — 4ward Motion Solutions, Inc.',                     hasGenerator: false },
-  { id: 'change-order',       label: 'Change Order',                category: 'contract',  renderTitle: 'Change Order — 4ward Motion Solutions, Inc.',                hasGenerator: false },
-  { id: 'white-paper',        label: 'White Paper',                 category: 'marketing', renderTitle: 'White Paper — 4ward Motion Solutions',                       hasGenerator: false },
-  { id: 'use-case',           label: 'Use Case',                    category: 'marketing', renderTitle: 'Use Case — 4ward Motion Solutions',                          hasGenerator: false },
-  { id: 'capabilities-brief', label: 'Capabilities Brief',          category: 'marketing', renderTitle: 'Capabilities Overview — 4ward Motion Solutions',             hasGenerator: false },
-  { id: 'exec-briefing',      label: 'Executive Briefing',          category: 'marketing', renderTitle: 'Executive Briefing — 4ward Motion Solutions',                hasGenerator: false },
+  { id: 'mou',                label: 'Memorandum of Understanding', category: 'contract',  allowedAudiences: ['client', 'internal'], renderTitle: 'Memorandum of Understanding — 4ward Motion Solutions, Inc.', hasGenerator: true },
+  { id: 'sow',                label: 'Statement of Work',           category: 'contract',  allowedAudiences: ['client', 'internal'], renderTitle: 'Statement of Work — 4ward Motion Solutions, Inc.',           hasGenerator: true },
+  { id: 'proposal',           label: 'Proposal',                    category: 'contract',  allowedAudiences: ['client', 'internal'], renderTitle: 'Proposal — 4ward Motion Solutions, Inc.',                    hasGenerator: false },
+  { id: 'invoice',            label: 'Invoice',                     category: 'contract',  allowedAudiences: ['client', 'internal'], renderTitle: 'Invoice — 4ward Motion Solutions, Inc.',                     hasGenerator: false },
+  { id: 'change-order',       label: 'Change Order',                category: 'contract',  allowedAudiences: ['client', 'internal'], renderTitle: 'Change Order — 4ward Motion Solutions, Inc.',                hasGenerator: false },
+  { id: 'white-paper',        label: 'White Paper',                 category: 'marketing', allowedAudiences: ['client', 'internal'], renderTitle: 'White Paper — 4ward Motion Solutions',                       hasGenerator: false },
+  { id: 'use-case',           label: 'Use Case',                    category: 'marketing', allowedAudiences: ['client', 'internal'], renderTitle: 'Use Case — 4ward Motion Solutions',                          hasGenerator: false },
+  { id: 'capabilities-brief', label: 'Capabilities Brief',          category: 'marketing', allowedAudiences: ['client', 'internal'], renderTitle: 'Capabilities Overview — 4ward Motion Solutions',             hasGenerator: false },
+  { id: 'exec-briefing',      label: 'Executive Briefing',          category: 'marketing', allowedAudiences: ['client', 'internal'], renderTitle: 'Executive Briefing — 4ward Motion Solutions',                hasGenerator: false },
+  { id: 'case-study',         label: 'Case Study',                  category: 'marketing', allowedAudiences: ['client', 'internal'], renderTitle: 'Case Study — 4ward Motion Solutions',                        hasGenerator: false },
+  // client-brief: internal ONLY — a research brief names vendors/competitors and candor a client must
+  // never see. The client audience is structurally impossible, not just hidden in the UI.
+  { id: 'client-brief',       label: 'Client Brief (internal)',     category: 'marketing', allowedAudiences: ['internal'],           renderTitle: 'Client Research Brief — 4ward Motion Solutions (Internal)',  hasGenerator: false },
 ]
 
 export function docTypeById(id: string): DocTypeSpec | undefined {

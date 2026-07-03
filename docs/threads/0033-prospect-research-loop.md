@@ -1,8 +1,12 @@
 # 0033 — P2-LOOP v1: prospect-research loop + case-study doc type (design)
 
 - **Opened:** 2026-07-03 (Atlas/Fable)
-- **Status:** ✅ **DESIGN APPROVED (Aegis re-review, at bottom) — HANDED TO SONNET 5 FOR
-  IMPLEMENTATION, with ONE BINDING CORRECTION:** `select for update` on the computed name only
+- **Status:** 🟡 **IMPLEMENTATION COMPLETE (Sonnet 5, 2026-07-03) — AWAITING AEGIS POST-BUILD QC.**
+  Both design reviews and Sonnet's implementation report (with the concurrency correction addressed)
+  are appended at the end of this doc. Migration `0030_loop_docs_and_brief_rpc.sql` is **written but
+  UNAPPLIED** — gated behind Aegis post-build QC + Jesse's explicit apply-go. Nothing pushed.
+- **Superseded status history:** ✅ DESIGN APPROVED (Aegis re-review, at bottom) — HANDED TO SONNET 5
+  FOR IMPLEMENTATION, with ONE BINDING CORRECTION: `select for update` on the computed name only
   serializes the UPDATE path — on FIRST CREATE there is no row to lock, so two concurrent writers
   race to the unique-name constraint. Sonnet MUST serialize before the existence check (Aegis offers
   two acceptable shapes: transaction-scoped advisory lock keyed on the name/client id — house
@@ -273,3 +277,92 @@ Both blockers accepted — both were repo-mechanics facts I got wrong or left im
 ### Handoff
 
 Sonnet may implement against r2 with the correction above. Migration `0030_loop_docs_and_brief_rpc.sql` remains held unapplied until Aegis post-build QC and Jesse apply-go.
+
+---
+
+## Sonnet 5 Implementation Report — 2026-07-03
+
+All 8 acceptance criteria built against r2, **including the binding concurrency correction**.
+
+**Migration `supabase/migrations/0030_loop_docs_and_brief_rpc.sql`** (new, held UNAPPLIED):
+- **`upsert_client_brief(p_actor, p_client_id, p_deal_id, p_title, p_body, p_embedding, p_embedding_model)`**
+  — service-role-only, `security definer`, empty `search_path`, fully qualified. Deterministic name
+  `client-brief-<slug≤50>-<clientid8>` (≤72 chars). **Concurrency fix per the Aegis binding
+  correction**: a transaction-scoped `pg_advisory_xact_lock(hashtext('mnemosyne-client-brief:' ||
+  client_id))` is taken BEFORE the `select ... for update` existence check — not relied on alone —
+  so two concurrent first-create calls for the same client can never both observe "not exists"; the
+  second blocks on the lock and takes the normal update/version branch once it acquires it. Proved
+  with a real `Promise.all` concurrent-call test (see smoke, below). `memory_versions` snapshots the
+  PRIOR state on every update (machine `edited_by`, `change_reason = 'prospect-research refresh'`);
+  `agent.client_brief` audit written in the same transaction via `log_activity`. `source_path = null`
+  is the new client_brief-owned provenance — verified (not newly coded) that `remember_memory`'s and
+  `ingest_memory_entry`'s existing ON CONFLICT ownership guards (`source_path ~ '^mcp/'` /
+  `'^memory/'`) already structurally exclude a NULL source_path row, so neither RPC can clobber a
+  client-brief entry.
+- **`save_rendered_document`** extended (byte-for-byte identical to 0022 otherwise) to accept
+  `case-study` and `client-brief` in its doc_type allow-list; `doc_kind` enum gains both values.
+
+**Doc-type catalog (`functions/_lib/brand-template.ts` + `src/lib/docTypes.ts`)**: both mirrors gain
+`allowedAudiences: ('client'|'internal')[]`; all 9 pre-existing types get `['client','internal']`
+(zero behavior change); `case-study` gets both; `client-brief` gets `['internal']` only — the client
+audience is structurally impossible for that type. `functions/api/render-document.ts` and
+`functions/api/save-rendered-document.ts` each independently reject `audience ∉
+allowedAudiences[docType]` with a 400 BEFORE the governance scan/render. `src/pages/Create.tsx`
+derives its audience toggle from `allowedAudiences` (hidden — replaced with an "Internal only" label
+— when there's only one option) and snaps the selection to a valid value when switching doc types.
+
+**Hosted MCP (`functions/_lib/client-brief.ts` new, `functions/api/mcp.ts` extended)**: two new tools,
+`client_brief` (scope `client_brief`, 6/hour) and `client_360` (scope `client_360`, 15/60s).
+`resolveClient`/`resolveDealForClient` implement the same uuid-or-name/title resolution rules for
+both tools; `client_brief` (a write) throws a descriptive error on ambiguous/unknown/foreign-deal
+(matching every write RPC's fail-closed convention), while `client_360` (a read, like `brief`)
+returns a soft `{error, candidates}` object — documented in the file header as a deliberate asymmetry
+justified by write-vs-read, not a difference in the resolution logic itself. `client_brief`'s cheap
+validate+secret-scan+resolve step (`prepareClientBrief`) runs BEFORE the 6/hour rate-limit check is
+spent (mirrors the existing `log_update` machine-action-allowlist hoist) — a call that was always
+going to fail must not cost part of a scarce budget; the actual embed+write only runs after the rate
+check passes. `client_360`'s response is capped at ~16,000 chars via `capClient360`, dropping whole
+items from the lowest-priority arm first (activity → documents → memories; client/contacts/deals
+never dropped) with a `truncated: {arm: n_dropped}` flag per arm — never a raw JSON truncation. Added
+`mcp/lib/remember-core.d.mts` (new) so the strict functions/ typecheck can see `isUuid`/`scanSecret`/
+`makeEmbedDoc`, which this unit imports into TypeScript for the first time.
+
+**Runbook**: `docs/runbooks/prospect-research.md` — the committed ground → research → persist → draft
+→ handoff procedure, with the hard rules (no outreach ever, no client auto-create, secret-scan not
+optional, never guess a client/deal) stated up front.
+
+**`scripts/provision-machine.mjs`**: `ALL_SCOPES` extended with `client_brief`/`client_360` (exec-pro's
+own scope grant is an apply-go-time operational step, not run by this build).
+
+**Verification (2026-07-03):**
+- `npm run build` — green (`tsc -b`, `tsc -p tsconfig.functions.json`, `vite build`).
+- All `mcp/test-*.mjs` green, no regressions: fetch 75/75, getsecret 17/17, log 34/34, recall 43/43,
+  remember 60/60, update 42/42, usage 5/5 — 276/276.
+- `node --check` clean on every new/modified script.
+- `scripts/smoke-prospect-loop.mjs` (new): migration post-apply gate (doc-type allow-list, RPC
+  existence/denial), `upsert_client_brief`'s full RPC contract (create → update → version-increment,
+  foreign-deal rejection, unknown-client rejection, embedding/title/body validation, actor
+  validation), **the concurrent-first-create test** (two simultaneous calls for a brand-new client →
+  exactly one memory row, exactly one version row, no unhandled unique-constraint error, one
+  `refreshed:false` + one `refreshed:true`), the structural audience-boundary 400s on both endpoints
+  plus a regression check that an existing type is unaffected, and a client_360 fixture-seeding check
+  proving the RPC-side data needed to force truncation exists. NOT yet run live — migration 0030 is
+  unapplied.
+- `scripts/smoke-hosted-mcp.mjs` extended with a "THREAD 0033" section: tools/list scoping for the
+  two new scopes, out-of-scope 403s, `client_brief` happy path (create then re-run/update),
+  ambiguous/unknown/foreign-deal/secret-scan resolution failures (all as tool errors, none consuming
+  a rate-limit slot per the prepare-hoist), `client_360` happy path + the soft not-found shape +
+  a live over-budget fixture proving `truncated.documents > 0` with still-parseable JSON.
+
+**Not run / cannot verify from this environment:** the migration hasn't been applied, so no live RPC
+checks have executed yet; acceptance criterion 6 ("a real agent session executes the runbook against
+a fixture client end-to-end") is inherently an agentic exercise, not a scriptable assertion — it needs
+to happen once, live, post-apply, analogous to how thread 0027's criterion 10 (a live second-machine
+Claude Code session) was handled; the Create-tab audience-selector hiding is visually unverified (no
+browser session this session).
+
+**Next steps (in order):** Aegis post-build QC → Jesse apply-go → apply migration 0030 → run
+`scripts/smoke-prospect-loop.mjs` and the extended `scripts/smoke-hosted-mcp.mjs` live → grant
+exec-pro (or a new machine) the `client_brief`/`client_360` scopes → push the code → re-run both
+smoke batteries against the pushed deploy → run the runbook dry-run live against a fixture client →
+Aegis live sign-off.

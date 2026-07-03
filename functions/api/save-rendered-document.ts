@@ -48,6 +48,11 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     if (body.audience !== 'client' && body.audience !== 'internal') return json({ error: '"audience" must be "client" or "internal"' }, 400)
     audience = body.audience
   }
+  // structural audience boundary (thread 0033 P2-LOOP) — same rule and same rationale as
+  // render-document.ts; enforced independently here since save is a separate endpoint/request.
+  if (!spec.allowedAudiences.includes(audience)) {
+    return json({ error: `"audience" must be one of: ${spec.allowedAudiences.join(', ')} for doc_type "${spec.id}"` }, 400)
+  }
   let deal_id: string | undefined
   if (body.deal_id !== undefined && body.deal_id !== null && body.deal_id !== '') {
     if (!isUuid(body.deal_id)) return json({ error: '"deal_id" must be a uuid' }, 400)

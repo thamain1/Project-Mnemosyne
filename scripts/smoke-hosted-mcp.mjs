@@ -71,6 +71,11 @@ let revokeMachineId, revokeToken
 let deactivatedMachineId, deactivatedToken
 let humanRowId, humanRowToken
 let projectId, projectName, secretEntryName
+// thread 0033 (P2-LOOP) fixtures
+let loopMachineId, loopToken
+let loopClientId, loopClientName, loopDealId
+let otherClientId, otherDealId
+let ambigAId, ambigBId, ambigNeedle
 
 async function setup() {
   // full-scope machine (primary positive-path actor)
@@ -121,6 +126,35 @@ async function setup() {
     actor_id: fullMachineId, action: 'agent.note', entity_type: 'project', entity_id: projectId, detail: { note: 'fixture activity row' },
   })
   if (actErr) throw new Error(`activity fixture: ${actErr.message}`)
+
+  // ---- thread 0033 (P2-LOOP) fixtures ----
+  loopMachineId = await createMachine(`smoke-mcp-loop-${stamp}`, ['client_brief', 'client_360'])
+  ;({ token: loopToken } = await (async () => { const t = mintToken(); await insertToken(loopMachineId, t.hash, 'loop'); return t })())
+
+  loopClientName = `Smoke Loop Client ${stamp}`
+  const { data: loopClient, error: loopClientErr } = await admin.from('clients').insert({ name: loopClientName }).select('id').single()
+  if (loopClientErr) throw new Error(`loop client fixture: ${loopClientErr.message}`)
+  loopClientId = loopClient.id
+  const { data: loopDeal, error: loopDealErr } = await admin.from('deals').insert({ client_id: loopClientId, title: `Smoke Loop Deal ${stamp}`, stage: 'lead' }).select('id').single()
+  if (loopDealErr) throw new Error(`loop deal fixture: ${loopDealErr.message}`)
+  loopDealId = loopDeal.id
+
+  // an unrelated client + deal, to prove a foreign deal uuid (belongs to a DIFFERENT client) is rejected
+  const { data: otherClient, error: otherClientErr } = await admin.from('clients').insert({ name: `Smoke Loop Other Client ${stamp}` }).select('id').single()
+  if (otherClientErr) throw new Error(`other client fixture: ${otherClientErr.message}`)
+  otherClientId = otherClient.id
+  const { data: otherDeal, error: otherDealErr } = await admin.from('deals').insert({ client_id: otherClientId, title: `Smoke Loop Other Deal ${stamp}`, stage: 'lead' }).select('id').single()
+  if (otherDealErr) throw new Error(`other deal fixture: ${otherDealErr.message}`)
+  otherDealId = otherDeal.id
+
+  // two clients sharing a common substring, to prove an ambiguous name -> candidates error (never guess)
+  ambigNeedle = `Loop Ambig ${stamp}`
+  const { data: ambigA, error: ambigAErr } = await admin.from('clients').insert({ name: `${ambigNeedle} Alpha` }).select('id').single()
+  if (ambigAErr) throw new Error(`ambiguous client A fixture: ${ambigAErr.message}`)
+  ambigAId = ambigA.id
+  const { data: ambigB, error: ambigBErr } = await admin.from('clients').insert({ name: `${ambigNeedle} Beta` }).select('id').single()
+  if (ambigBErr) throw new Error(`ambiguous client B fixture: ${ambigBErr.message}`)
+  ambigBId = ambigB.id
 }
 
 async function cleanup() {
@@ -129,7 +163,7 @@ async function cleanup() {
     // rate_limits, tries a real team_members delete, falls back to deactivate if something still
     // blocks it, then best-effort deleteUser (harmless no-op for these — machines have no real auth
     // user). machine_tokens isn't actor-keyed the same way, so it's deleted separately here.
-    for (const id of [fullMachineId, limitedMachineId, revokeMachineId, deactivatedMachineId, humanRowId]) {
+    for (const id of [fullMachineId, limitedMachineId, revokeMachineId, deactivatedMachineId, humanRowId, loopMachineId]) {
       if (!id) continue
       await admin.from('machine_tokens').delete().eq('member_id', id)
       await cleanupMember(admin, id)
@@ -139,6 +173,24 @@ async function cleanup() {
       await admin.from('documents').delete().eq('project_id', projectId)
       await admin.from('memory_entries').delete().eq('project_id', projectId)
       await admin.from('projects').delete().eq('id', projectId)
+    }
+    // thread 0033 fixtures — memory_entries created by client_brief calls are found by client_id, not
+    // by a name we control up front (the RPC computes the name), so clean up by link, not by name.
+    for (const clientId of [loopClientId, otherClientId, ambigAId, ambigBId]) {
+      if (!clientId) continue
+      const { data: mems } = await admin.from('memory_entries').select('id').eq('client_id', clientId)
+      for (const m of mems ?? []) {
+        await admin.from('memory_chunks').delete().eq('memory_entry_id', m.id)
+        await admin.from('memory_versions').delete().eq('entry_id', m.id)
+      }
+      await admin.from('memory_entries').delete().eq('client_id', clientId)
+      await admin.from('documents').delete().eq('client_id', clientId)
+      await admin.from('activity_log').delete().eq('entity_id', clientId)
+    }
+    if (loopDealId) await admin.from('deals').delete().eq('id', loopDealId)
+    if (otherDealId) await admin.from('deals').delete().eq('id', otherDealId)
+    for (const id of [loopClientId, otherClientId, ambigAId, ambigBId]) {
+      if (id) await admin.from('clients').delete().eq('id', id)
     }
   } catch (e) { console.error('cleanup warning:', e.message) }
 }
@@ -417,6 +469,81 @@ async function main() {
     } else {
       check('brief exec-pro repro — IntelliOptics 2.5 project exists', false, 'not found — thread 0030 backfill may not have run on this DB')
     }
+  }
+
+  // ================= 10. THREAD 0033 (P2-LOOP) — client_brief + client_360 hosted tools =================
+  // Resolution (uuid-or-name, ambiguous/unknown/foreign-deal) lives in functions/_lib/client-brief.ts,
+  // reachable ONLY through this endpoint — scripts/smoke-prospect-loop.mjs explicitly defers all of
+  // this here (it can only exercise upsert_client_brief's own RPC contract directly).
+  {
+    // ---- scoping: loopToken (client_brief + client_360 only) vs limitedToken (recall only) ----
+    const loopList = await call(loopToken, rpcReq('tools/list', {}))
+    const loopNames = (loopList.json?.result?.tools ?? []).map((t) => t.name).sort()
+    check('tools/list (loop scope) -> exactly client_brief + client_360', JSON.stringify(loopNames) === JSON.stringify(['client_360', 'client_brief']))
+    const limitedList2 = await call(limitedToken, rpcReq('tools/list', {}))
+    const limitedNames2 = (limitedList2.json?.result?.tools ?? []).map((t) => t.name)
+    check('a recall-only token never lists client_brief/client_360', !limitedNames2.includes('client_brief') && !limitedNames2.includes('client_360'))
+    const outOfScopeBrief = await call(limitedToken, rpcReq('tools/call', { name: 'client_brief', arguments: { client: loopClientId, title: 'x', body: 'x' } }))
+    check('client_brief out-of-scope -> 403', outOfScopeBrief.status === 403)
+    const outOfScope360 = await call(limitedToken, rpcReq('tools/call', { name: 'client_360', arguments: { client: loopClientId } }))
+    check('client_360 out-of-scope -> 403', outOfScope360.status === 403)
+
+    // ---- client_brief happy path: create, then re-run (update) ----
+    const firstCall = await call(loopToken, rpcReq('tools/call', {
+      name: 'client_brief',
+      arguments: { client: loopClientName, title: 'Smoke Research v1', body: 'Initial prospect research findings.', deal: loopDealId },
+    }))
+    check('client_brief happy path (create) -> 200, not isError', firstCall.status === 200 && !firstCall.json?.result?.isError, JSON.stringify(firstCall.json).slice(0, 300))
+    const firstData = JSON.parse(firstCall.json?.result?.content?.[0]?.text ?? '{}')
+    check('client_brief create reports refreshed:false', firstData.refreshed === false, JSON.stringify(firstData))
+
+    const secondCall = await call(loopToken, rpcReq('tools/call', {
+      name: 'client_brief',
+      arguments: { client: loopClientId, title: 'Smoke Research v2', body: 'Deeper prospect research findings.' },
+    }))
+    check('client_brief happy path (re-run, uuid client, no deal) -> 200, not isError', secondCall.status === 200 && !secondCall.json?.result?.isError)
+    const secondData = JSON.parse(secondCall.json?.result?.content?.[0]?.text ?? '{}')
+    check('client_brief re-run reports refreshed:true, SAME name as the first call', secondData.refreshed === true && secondData.name === firstData.name, JSON.stringify(secondData))
+
+    // ---- resolution failures: none of these consume a rate-limit slot (prepare runs before the rate
+    // check) — proven implicitly by all of them succeeding here alongside only 2 successful writes
+    // above, well under the 6/hour budget. ----
+    const ambiguousCall = await call(loopToken, rpcReq('tools/call', { name: 'client_brief', arguments: { client: ambigNeedle, title: 'x', body: 'x' } }))
+    check('client_brief ambiguous client -> tool error naming both candidates', ambiguousCall.status === 200 && ambiguousCall.json?.result?.isError === true && /Alpha/.test(ambiguousCall.json.result.content[0].text) && /Beta/.test(ambiguousCall.json.result.content[0].text), ambiguousCall.json?.result?.content?.[0]?.text)
+
+    const unknownCall = await call(loopToken, rpcReq('tools/call', { name: 'client_brief', arguments: { client: 'No Such Client At All ' + stamp, title: 'x', body: 'x' } }))
+    check('client_brief unknown client -> tool error, no auto-create', unknownCall.status === 200 && unknownCall.json?.result?.isError === true && /not found/i.test(unknownCall.json.result.content[0].text))
+    const { count: clientCountAfter } = await admin.from('clients').select('id', { count: 'exact', head: true }).ilike('name', `No Such Client At All ${stamp}`)
+    check('unknown-client call did NOT auto-create a client row', (clientCountAfter ?? 0) === 0)
+
+    const foreignDealCall = await call(loopToken, rpcReq('tools/call', { name: 'client_brief', arguments: { client: loopClientId, title: 'x', body: 'x', deal: otherDealId } }))
+    check('client_brief foreign deal uuid (belongs to a different client) -> tool error', foreignDealCall.status === 200 && foreignDealCall.json?.result?.isError === true && /not found|belong/i.test(foreignDealCall.json.result.content[0].text))
+
+    const secretCall = await call(loopToken, rpcReq('tools/call', { name: 'client_brief', arguments: { client: loopClientId, title: 'x', body: 'leaked key sk_live_' + 'x'.repeat(24) } }))
+    check('client_brief with a planted secret in body -> refused (ingress scan)', secretCall.status === 200 && secretCall.json?.result?.isError === true && /refused/i.test(secretCall.json.result.content[0].text))
+
+    // ---- client_360 happy path + unknown-client soft error + truncation proof ----
+    const client360Call = await call(loopToken, rpcReq('tools/call', { name: 'client_360', arguments: { client: loopClientId } }))
+    check('client_360 happy path -> 200, not isError', client360Call.status === 200 && !client360Call.json?.result?.isError)
+    const client360Data = JSON.parse(client360Call.json?.result?.content?.[0]?.text ?? '{}')
+    check('client_360 returns the fixture client + the brief written above + truncated:{} (nothing dropped for a small fixture)', client360Data.client?.id === loopClientId && (client360Data.memories ?? []).some((m) => m.name === firstData.name) && JSON.stringify(client360Data.truncated) === '{}', JSON.stringify(client360Data).slice(0, 300))
+
+    const client360Unknown = await call(loopToken, rpcReq('tools/call', { name: 'client_360', arguments: { client: 'No Such Client At All ' + stamp } }))
+    check('client_360 unknown client -> soft {error, candidates} JSON, NOT an isError (read-tool convention, matches brief)', client360Unknown.status === 200 && !client360Unknown.json?.result?.isError, JSON.stringify(client360Unknown.json).slice(0, 200))
+    const client360UnknownData = JSON.parse(client360Unknown.json?.result?.content?.[0]?.text ?? '{}')
+    check('client_360 unknown-client soft error has reason "not_found"', client360UnknownData.error === 'not_found')
+
+    // seed enough documents directly (bypassing client_brief's budget) to force the 16,000-char cap
+    const seedIds = Array.from({ length: 60 }, () => randomUUID())
+    for (const id of seedIds) {
+      await admin.from('documents').insert({ id, client_id: loopClientId, doc_type: 'other', title: `Synthetic seed doc ${id} for hosted truncation proof ${stamp}`, storage_path: `synthetic/${id}`, extracted_text: 'x', origin: 'draft', created_by: fullMachineId })
+    }
+    const cappedCall = await call(loopToken, rpcReq('tools/call', { name: 'client_360', arguments: { client: loopClientId } }))
+    check('client_360 over-budget fixture -> still 200, not isError (structural cap, not a crash)', cappedCall.status === 200 && !cappedCall.json?.result?.isError)
+    const cappedData = JSON.parse(cappedCall.json?.result?.content?.[0]?.text ?? '{}')
+    check('client_360 over-budget -> documents arm dropped with an honest truncated.documents count > 0', (cappedData.truncated?.documents ?? 0) > 0, JSON.stringify(cappedData.truncated))
+    check('client_360 over-budget response is still valid, parseable JSON (never raw-truncated)', JSON.stringify(cappedData).length > 0)
+    for (const id of seedIds) await admin.from('documents').delete().eq('id', id)
   }
 
   console.log(`\n[smoke-hosted-mcp] pass=${pass} fail=${fail}`)

@@ -26,6 +26,11 @@ export default function Create() {
     if (!dirty || markdown.trim() === '' || confirm('Replace the editor with this type’s starter template? Unsaved edits will be lost.')) {
       setMarkdown(starterFor(id)); setDirty(false)
     }
+    // audience toggle derives from the type's allowedAudiences (structural, not just UI convenience —
+    // the endpoints enforce the same list). If the current selection isn't allowed for the new type
+    // (e.g. switching to client-brief while "Client-facing" was selected), snap to the first allowed one.
+    const allowed = docTypeById(id)?.allowedAudiences ?? ['client', 'internal']
+    if (!allowed.includes(audience)) setAudience(allowed[0])
   }
 
   async function renderPdf() {
@@ -101,7 +106,7 @@ export default function Create() {
           </optgroup>
         </select>
 
-        {spec.category === 'marketing' && (
+        {spec.category === 'marketing' && spec.allowedAudiences.length > 1 && (
           <label className="flex items-center gap-2 text-xs text-slate-400">
             Audience:
             <select value={audience} onChange={(e) => setAudience(e.target.value as 'client' | 'internal')}
@@ -110,6 +115,11 @@ export default function Create() {
               <option value="internal">Internal (vendor names OK)</option>
             </select>
           </label>
+        )}
+        {spec.category === 'marketing' && spec.allowedAudiences.length === 1 && (
+          <span className="text-xs text-amber-400" title="This document type is structurally internal-only — the client audience option does not exist for it.">
+            Audience: Internal only
+          </span>
         )}
 
         <div className="ml-auto flex gap-2">

@@ -60,6 +60,13 @@ export const onRequestPost = async (context: any): Promise<Response> => {
     if (body.audience !== 'client' && body.audience !== 'internal') return json({ error: '"audience" must be "client" or "internal"' }, 400)
     audience = body.audience
   }
+  // ---- structural audience boundary (thread 0033 P2-LOOP) — a doc type can be permanently restricted
+  // to a subset of audiences (e.g. client-brief is internal-only: a research brief names vendors/
+  // competitors a client must never see). Enforced HERE, before the scan, so a hand-crafted request
+  // fails identically to the UI — the UI toggle is a convenience, never the boundary. ----
+  if (!spec.allowedAudiences.includes(audience)) {
+    return json({ error: `"audience" must be one of: ${spec.allowedAudiences.join(', ')} for doc_type "${spec.id}"` }, 400)
+  }
 
   // ---- governance gate (cheap, no network) — a policy-rejected request must not spend a rate-limit
   // token (thread 0024 QC P2-ORDER) ----

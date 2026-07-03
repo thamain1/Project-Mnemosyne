@@ -36,7 +36,9 @@ import { logUsage } from '../_lib/usage'
 import { makeEmbedQuery, runRecall, MAX_K, MAX_QUERY_LEN, DEFAULT_K } from '../../mcp/lib/recall-core.mjs'
 import { runFetch, MAX_NAME_LEN, MAX_CHARS_CAP } from '../../mcp/lib/fetch-core.mjs'
 import { runLogUpdate, MAX_ACTION_LEN } from '../../mcp/lib/log-core.mjs'
+import { makeEmbedDoc } from '../../mcp/lib/remember-core.mjs'
 import { runBrief } from '../_lib/brief'
+import { prepareClientBrief, executeClientBrief, runClient360, type PreparedClientBrief } from '../_lib/client-brief'
 
 const PROTOCOL_VERSION = '2025-06-18'
 const SERVER_INFO = { name: 'mnemosyne', version: '1.0.0' }
@@ -54,6 +56,11 @@ const RATE_LIMITS: Record<string, { limit: number; windowSeconds: number }> = {
   fetch: { limit: 20, windowSeconds: 60 },
   log_update: { limit: 30, windowSeconds: 60 },
   brief: { limit: 10, windowSeconds: 60 },
+  // client_brief writes + embeds a research artifact — deliberately tight (thread 0033 design: 6/hour)
+  // vs. every other bucket's 60s window; a prospect-research session does a handful of these, not dozens.
+  client_brief: { limit: 6, windowSeconds: 3600 },
+  // client_360 is a read-only grounding call, same cadence class as `brief`.
+  client_360: { limit: 15, windowSeconds: 60 },
 }
 
 const MACHINE_ACTION_RE = /^(agent\.|work\.)/
@@ -117,6 +124,33 @@ const TOOLS: ToolDef[] = [
         project: { type: 'string', description: 'Project name (case-insensitive; exact match preferred, falls back to a unique prefix/substring match).' },
       },
       required: ['project'],
+    },
+  },
+  {
+    name: 'client_brief',
+    scope: 'client_brief',
+    description: 'Persist prospect-research findings as a client-linked memory (kind=reference). Creates on first call, versions on re-run for the same client. Never auto-creates the client — resolve or create it via the CRM tab first. Rate-limited to 6/hour.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        client: { type: 'string', maxLength: 200, description: 'CRM client name (case-insensitive exact/substring match) OR uuid. Ambiguous/unknown -> a structured error, never a guess.' },
+        title: { type: 'string', maxLength: 200, description: 'Brief title.' },
+        body: { type: 'string', maxLength: 24000, description: 'Brief body (markdown). Secret-scanned before storage — never paste live credentials here.' },
+        deal: { type: 'string', maxLength: 200, description: 'Optional deal title or uuid, scoped to the resolved client. A uuid belonging to a DIFFERENT client is rejected.' },
+      },
+      required: ['client', 'title', 'body'],
+    },
+  },
+  {
+    name: 'client_360',
+    scope: 'client_360',
+    description: 'Grounding read: everything linked to a CRM client — contacts, deals, linked memories, linked documents, recent activity. Structurally capped at ~16,000 chars (whole items dropped from the lowest-priority arm first, never raw-truncated) with per-arm truncation counts.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        client: { type: 'string', maxLength: 200, description: 'CRM client name (case-insensitive exact/substring match) OR uuid.' },
+      },
+      required: ['client'],
     },
   },
 ]
@@ -275,6 +309,22 @@ export const onRequest = async (context: any): Promise<Response> => {
       return json({ error: 'action not allowed for machine actors — must start with "agent." or "work."' }, 403)
     }
 
+    // client_brief: run cheap validate+secret-scan+resolve BEFORE spending one of only 6/hour rate-
+    // limit slots (thread 0033 P2-ORDER, same rationale as the log_update hoist above) — a call that
+    // was always going to fail (bad args, a planted secret, an unresolvable client/deal) must not cost
+    // the caller part of a scarce budget. The actually-expensive part (embed + the RPC write) still
+    // runs strictly after the rate check below, same as every other tool. A prepare failure returns a
+    // normal JSON-RPC tool error (isError:true) — it's a per-call semantic miss, not an access-control
+    // decision, so it does NOT get log_update's raw-403 treatment.
+    let clientBriefPrepared: PreparedClientBrief | undefined
+    if (tool.name === 'client_brief') {
+      try {
+        clientBriefPrepared = await prepareClientBrief(admin, args)
+      } catch (e: any) {
+        return rpcResult(id, toolError(String(e?.message ?? e).slice(0, 500)))
+      }
+    }
+
     const bucket = RATE_LIMITS[tool.name]
     const rate = await checkRateLimit(admin, actor.id, `mcp_${tool.name}`, bucket.limit, bucket.windowSeconds)
     if (!rate.ok) return rate.res
@@ -283,7 +333,7 @@ export const onRequest = async (context: any): Promise<Response> => {
     let resultBody: any
     let ok = true
     try {
-      resultBody = await callTool(tool.name, args, { admin, gemini: GEMINI, actor })
+      resultBody = await callTool(tool.name, args, { admin, gemini: GEMINI, actor, clientBriefPrepared })
     } catch (e: any) {
       ok = false
       resultBody = toolError(String(e?.message ?? e).slice(0, 500))
@@ -297,7 +347,7 @@ export const onRequest = async (context: any): Promise<Response> => {
     // at the cost of ~100-200ms per machine tool call.
     await logUsage(admin, {
       actorId: actor.id, tool: `mcp/${tool.name}`, source: 'mcp',
-      model: tool.name === 'recall' ? 'gemini-embedding-001' : null,
+      model: tool.name === 'recall' || tool.name === 'client_brief' ? 'gemini-embedding-001' : null,
       bytesIn, bytesOut, ok,
     })
     return rpcResult(id, resultBody)
@@ -312,8 +362,8 @@ function unauthorized(): Response {
 
 // Dispatch to the actual tool logic. Throwing here becomes a JSON-RPC tool-call error (isError:true) —
 // callers get a normal 200 response with the failure described in content, not a transport error.
-async function callTool(name: string, args: any, ctx: { admin: any; gemini: string; actor: { id: string; kind: string; scopes: string[] } }): Promise<any> {
-  const { admin, gemini, actor } = ctx
+async function callTool(name: string, args: any, ctx: { admin: any; gemini: string; actor: { id: string; kind: string; scopes: string[] }; clientBriefPrepared?: PreparedClientBrief }): Promise<any> {
+  const { admin, gemini, actor, clientBriefPrepared } = ctx
   const rpc = (fn: string, rpcArgs: any) => admin.rpc(fn, rpcArgs)
 
   if (name === 'recall') {
@@ -357,6 +407,19 @@ async function callTool(name: string, args: any, ctx: { admin: any; gemini: stri
 
   if (name === 'brief') {
     const result = await runBrief(args, { admin })
+    return toolText(JSON.stringify(result))
+  }
+
+  if (name === 'client_brief') {
+    // clientBriefPrepared is always set here — the tools/call handler ran prepareClientBrief (and
+    // returned a tool error early on failure) BEFORE this function is ever reached for this tool.
+    const embedDoc = makeEmbedDoc({ apiKey: gemini })
+    const data = await executeClientBrief(clientBriefPrepared!, { rpc, embedDoc, actorId: actor.id })
+    return toolText(JSON.stringify(data))
+  }
+
+  if (name === 'client_360') {
+    const result = await runClient360(args, { admin, rpc })
     return toolText(JSON.stringify(result))
   }
 
