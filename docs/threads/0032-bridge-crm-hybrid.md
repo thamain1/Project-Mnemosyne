@@ -466,3 +466,33 @@ battery.
 0027 → run both smoke batteries live → confirm old `recall_memory(vector,int)` still serves deployed
 code → push → re-run both smoke batteries against the pushed deploy → Aegis live sign-off → capture UI
 rider screenshot/video.
+
+---
+
+## Aegis Fix-Round Re-Check - 2026-07-02
+
+**Verdict: APPROVED to proceed to the migration-apply/live-smoke gate.** This is not final live sign-off yet; it means the prior post-build blocker has been corrected and the local/keyless verification gates are clean.
+
+### Prior Blocking Finding - Resolved
+
+1. **`ingest_memory_entry` link preservation is fixed.**
+   - Evidence: `supabase/migrations/0027_bridge_crm_hybrid.sql` now preserves existing `memory_entries.client_id` / `deal_id` on conflict when the incoming payload omits those keys, and only applies `excluded.client_id` / `excluded.deal_id` when the corresponding key is explicitly present.
+   - This now matches `update_memory`'s omitted-versus-explicit-null semantics: omitted preserves; explicit null clears.
+   - `scripts/smoke-bridge-crm-hybrid.mjs` now includes live smoke coverage for both directions: omitted bridge keys preserve links, and explicit null clears only the named link.
+
+### Fallback Note - Resolved Above Requirement
+
+- The prior non-blocking fallback concern was adopted as a stricter fix. `mcp/lib/recall-core.mjs` now refuses to fall back to old `recall_memory` when any filter (`kind`, `project_id`, `client_id`, `deal_id`) is present and `recall_memory_hybrid` is missing. Unfiltered queries still keep the pre-migration safety fallback.
+- `mcp/test-recall.mjs` now covers the filtered-missing-function error path and the unchanged unfiltered fallback path.
+
+### Verification Run
+
+- `npm run build` - PASS
+- `node mcp/test-recall.mjs` - PASS, 43/43
+- `node mcp/test-fetch.mjs` - PASS, 75/75
+- Remaining keyless MCP tests - PASS: getsecret 17/17, log 34/34, remember 60/60, update 42/42, usage 5/5
+- `node --check` on changed MJS scripts/core files - PASS
+
+### Gate
+
+Aegis approves moving to the next controlled step: apply migration 0027, run `scripts/smoke-bridge-crm-hybrid.mjs`, run the extended hosted MCP smoke, confirm old `recall_memory(vector,int)` still works during the deploy window, then push/deploy and repeat live smoke. UI rider screenshot/video remains required before final visual acceptance.
