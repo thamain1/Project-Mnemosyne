@@ -1,7 +1,9 @@
 # 0033 — P2-LOOP v1: prospect-research loop + case-study doc type (design)
 
 - **Opened:** 2026-07-03 (Atlas/Fable)
-- **Status:** DESIGN — awaiting Aegis review, then Sonnet 5 builds. No build work authorized yet.
+- **Status:** DESIGN r2 — Aegis r1 = NOT APPROVED AS-IS (2 blockers, 4 clarifications; review at
+  bottom). **Both blockers resolved in the r2 sections below** (marked "r2"); clarifications bound.
+  Awaiting Aegis re-review, then Sonnet 5 builds. No build work authorized yet.
 - **Unit:** roadmap thread `0024` recommended-sequence step 5 ("first item that plausibly *makes*
   money"). Folds in the **`case-study` doc type** (Jesse's 2026-06-29 open item #1 — it IS the
   collateral this loop produces). P2-DRAFT (outreach email drafting) is DEFERRED except where noted.
@@ -10,11 +12,12 @@
 - **Migration number:** `0030_loop_doc_types.sql` (0027–0029 applied). Deliberately TINY — this unit
   is mostly code + one runbook; the loop's heavy machinery (bridge, client_360, hybrid recall, CRM
   fields, doc factory, hosted MCP) shipped in 0027/0032.
-- **Verified facts (2026-07-03):** `doc_kind` enum is additively extendable (0022 precedent);
-  `DOC_TYPE_CATALOG` in `functions/_lib/brand-template.ts` mirrors `src/lib/docTypes.ts` (12 types);
-  hosted MCP exposes recall/fetch/log_update/brief only — `remember`/`update` structurally absent
-  (0027 §5: "deferred to a 2b unit pending need" — **this unit is the documented need**, scoped far
-  narrower than full remember).
+- **Verified facts (2026-07-03, r2-corrected per Aegis):** `doc_kind` enum is additively extendable
+  (0022 precedent); `DOC_TYPE_CATALOG` in `functions/_lib/brand-template.ts` mirrors
+  `src/lib/docTypes.ts` — **9 entries** (r1 said 12: a bad grep, Aegis correction accepted), with
+  `category` typed `contract | marketing` ONLY (no internal — hence r2 Part B); hosted MCP exposes
+  recall/fetch/log_update/brief only — `remember`/`update` structurally absent (0027 §5: "deferred
+  to a 2b unit pending need" — **this unit is the documented need**, scoped far narrower).
 
 ## Why (one paragraph)
 
@@ -42,48 +45,90 @@ Steps 2 and 4 are agent-side (that's what the agent IS); Mnemosyne's job is grou
 linked persistence (3), and branded output (5). v1 keeps render/save/attach human-gated — an agent
 publishing collateral unreviewed is exactly the "auto-final" failure the factory's design forbids.
 
-## Part A — migration `0030_loop_doc_types.sql` (held UNAPPLIED)
+## Part A — migration `0030_loop_docs_and_brief_rpc.sql` (held UNAPPLIED)
 
 1. `alter type public.doc_kind add value if not exists 'case-study';`
    `alter type public.doc_kind add value if not exists 'client-brief';` (additive, 0022 pattern).
 2. `save_rendered_document`'s doc_type allow-list gains both (locate the actual validation — Sonnet:
    read 0022's RPC, don't assume where the list lives).
-3. Nothing else. No new tables, no new grants beyond what the RPC edit implies.
+3. **(r2, resolves Aegis blocker 1) NEW dedicated RPC `upsert_client_brief`** — the write-path
+   contract, exact. None of the three existing write RPCs fits (Aegis is right: `remember_memory`
+   has no bridge params; `ingest_memory_entry` is the FILE-backed path — requires a `memory/*.md`
+   source_path/slug a machine-authored brief doesn't have, and carries no actor/audit/versioning;
+   `update_memory` never creates and demands `expected_updated_at`). One narrow definer RPC keeps
+   every guarantee in one atomic place:
+   - **Signature:** `upsert_client_brief(p_actor uuid, p_client_id uuid, p_deal_id uuid,
+     p_title text, p_body text, p_embedding vector(768), p_embedding_model text)` → jsonb
+     `{name, refreshed, version_no}`. Service-role-only execute, `security definer`, empty
+     search_path, fully qualified — house pattern verbatim.
+   - **Name strategy (deterministic, collision-proof, ≤80):**
+     `'client-brief-' || left(<slugified client name>, 50) || '-' || left(p_client_id::text, 8)`
+     — worst case 13+50+1+8 = 72 chars; the id suffix disambiguates similarly named clients.
+   - **Algorithm (atomic):** validate actor (active team_members row) + client exists + optional
+     deal belongs to that client; compute name; `select ... for update` on that name —
+     **EXISTS** → snapshot to `memory_versions` (next version_no, `edited_by = p_actor`,
+     `change_reason = 'prospect-research refresh'`) then UPDATE body/title/embedding + client_id/
+     deal_id + `updated_at = now()`; **NOT EXISTS** → INSERT with `kind='reference'`,
+     `source_path = null` (operator/mcp provenance, exactly like remember's entries), links set at
+     birth. Returns `refreshed` so the tool can report create-vs-update.
+   - **Concurrency: deliberately SERIALIZED, not optimistic.** The `for update` row lock is the
+     contract — this name family has exactly one writer shape (the tool), briefs are last-write-wins
+     research artifacts, and forcing machines through an expected_updated_at read-then-write dance
+     buys nothing here. Documented as a deliberate divergence from update_memory's model.
+   - **Audit:** the RPC itself calls `log_activity(p_actor, 'agent.client_brief', 'clients',
+     p_client_id, {memory_name, title, refreshed, deal_id})` — one write path, one audit path.
+   - Validation caps in-RPC: title ≤200, body ≤24,000, embedding 768-dim unit-norm (remember's
+     checks, reused shape).
+4. Post-apply gate: enum values present; RPC execute denied anon/authenticated, granted
+   service_role; allow-list accepts new types + still rejects unknown.
 
-## Part B — doc-type catalog (code, both mirrors)
+## Part B — doc-type catalog + structural audience model (r2, resolves Aegis blocker 2)
+
+**The audience model, exact (Aegis-preferred shape):** the catalog spec in BOTH mirrors gains
+`allowedAudiences: ('client' | 'internal')[]`. Every EXISTING type gets `['client','internal']` —
+byte-identical behavior to today. `category` stays `contract | marketing` (it drives the SCAN
+policy split and is orthogonal to audience permission — do not overload it with a third value).
+**Server-side enforcement FIRST:** `render-document` and `save-rendered-document` reject
+`audience` ∉ `allowedAudiences[docType]` with a structural 400 BEFORE the governance scan/render —
+cheap-validation-first order (0024 P2-ORDER rule), and the check lives server-side so a hand-crafted
+request fails identically to the UI. The Create tab derives its audience toggle from
+`allowedAudiences` (hidden when only one) — UI is a convenience, never the boundary.
 
 `functions/_lib/brand-template.ts` + `src/lib/docTypes.ts`:
-- **`case-study`** — category `marketing` (client+internal audience toggle, same policy split as
-  white-paper/use-case). Starter scaffold: Client & Context / Challenge / What We Built / Outcome
-  (metrics) / Pull Quote / About 4ward. Until now a case study mapped to `use-case`; entries keep
-  working, new ones get the real type.
-- **`client-brief`** — category `internal` (NEVER client-facing; internal policy allows vendor
-  names, which a research brief needs). Scaffold: Company Snapshot / People / Signals-Why-Now /
-  Fit vs 4ward Capabilities / Suggested Angle / Draft Outreach (clearly marked DRAFT — the P2-DRAFT
-  sliver we DO take) / Sources.
+- **`case-study`** — category `marketing`, `allowedAudiences: ['client','internal']` (same policy
+  split as white-paper/use-case). Starter scaffold: Client & Context / Challenge / What We Built /
+  Outcome (metrics) / Pull Quote / About 4ward. Until now a case study mapped to `use-case`;
+  entries keep working, new ones get the real type.
+- **`client-brief`** — category `marketing` (its scan policy when internal), but
+  **`allowedAudiences: ['internal']` — the client audience is structurally impossible**, enforced
+  server-side per above (a research brief names vendors and candor a client must never see).
+  Scaffold: Company Snapshot / People / Signals-Why-Now / Fit vs 4ward Capabilities / Suggested
+  Angle / Draft Outreach (clearly marked DRAFT — the P2-DRAFT sliver we DO take) / Sources.
 
 ## Part C — hosted MCP additions (the agent-enabling surface)
 
-**C1. `client_brief` tool (scope `client_brief`) — the narrow write.** NOT generic remember:
-- Args: `{ client: string (name, resolved case-insensitively — ambiguous/missing → structured
-  candidates error, never guess, never auto-create), title, body (markdown), deal?: string }`.
-- Writes via the existing sanctioned ingest path with: `kind='reference'`, name FORCED to
-  `client-brief-<client-slug>` (one canonical brief per client — re-run = versioned update via
-  update_memory semantics, change_reason auto-set 'prospect-research refresh'), `client_id` (and
-  `deal_id` if resolved) linked — the ONLY machine path that may set bridge links, per 0032's
-  deliberate deferral.
-- **Ingress secret-scan runs on the body** (same scanner as remember's path — reuse, don't
-  reimplement) — research pastes are exactly where a stray copied API key would arrive.
-- Caps: body ≤ 24,000 chars; title ≤ 200. Rate bucket `mcp_client_brief` 6/hour (research cadence,
-  not chat cadence). Telemetry source='mcp' as established.
-- Machine action allowlist: the tool logs `agent.client_brief` activity (allowed prefix, entity =
-  client) — audit shows WHICH machine researched WHOM.
+**C1. `client_brief` tool (scope `client_brief`) — the narrow write (r2: calls the Part-A RPC).**
+- Args: `{ client: string (name OR uuid), title, body (markdown), deal?: string (title or uuid) }`.
+- Tool-side pipeline, in order (0024 P2-ORDER: cheap first): validate args/caps (body ≤24,000,
+  title ≤200) → **ingress secret-scan on title+body** (the SAME scanner remember's core uses —
+  reuse, don't reimplement; research pastes are exactly where a stray key arrives) → resolve client
+  (uuid accepted directly if it exists; else case-insensitive exact name, else unique substring,
+  else structured candidates error — never guess, NEVER auto-create) → **(r2 clarification) resolve
+  `deal` scoped to the resolved client**: uuid accepted if it belongs to that client; else
+  exact-then-unique-substring on `deals.title` WHERE client_id matches; ambiguous → candidates
+  error → rate check `mcp_client_brief` 6/hour → embed body (Gemini, endpoint-side) → ONE call to
+  `upsert_client_brief` (all audit/link/version guarantees live in the RPC, Part A).
+- Telemetry source='mcp'; activity `agent.client_brief` written BY the RPC (single audit path).
 **C2. `client_360` tool (scope `client_360`) — the grounding read.** Thin wrapper over the existing
-service-role RPC: `{ client: string }` → same resolution rules → the RPC's JSON, hard-capped at
-16,000 chars with honest per-section truncation flags (brief's pattern). Memories/documents stay
-metadata-only (RPC already guarantees).
-- Both tools: schema-declared AND runtime-enforced caps (0027 lesson); scoped tools/list; 401/403
-  batteries extended.
+service-role RPC: `{ client: string }` → same resolution rules as C1 → **(r2 clarification) capped
+STRUCTURALLY, never raw-JSON-truncated**: if the RPC result exceeds 16,000 chars, drop whole items
+from the lowest-priority arm first (activity → documents → memories; client/contacts/deals never
+dropped), setting per-arm `truncated: {activity: n_dropped, ...}` flags — agents always receive
+parseable JSON and know exactly which arm was clipped.
+- Both tools: schema-declared AND runtime-enforced caps (0027 lesson); scoped tools/list.
+- **(r2 clarification) smoke battery, explicit:** tools/list for a token with the new scopes lists
+  them; a recall-only token's tools/list does NOT contain client_brief/client_360; direct
+  out-of-scope tools/call → 403; plus the standard 401 no-oracle set.
 - exec-pro gets both scopes on apply-go (provision script `--scopes` update documented).
 
 ## Part D — the runbook (the loop itself, per the handoff SOP)
@@ -109,9 +154,15 @@ human creates via CRM tab), secret-scan is not optional.
 1. Migration applies clean; both enum values present; `save_rendered_document` accepts both types
    and still rejects unknown types; post-apply gate proves no grant drift.
 2. Create tab renders + saves a `case-study` (client + internal audience) and a `client-brief`
-   (internal ONLY — client audience must be structurally absent for it, not just 422).
-3. `client_brief` tool: happy path writes the linked memory (client_id set, name forced, kind
-   reference) AND a re-run updates-not-duplicates with a version row; ambiguous client → candidates
+   (internal ONLY). **(r2) Structural proof server-side, not UI-side:** a hand-crafted
+   `render-document` AND `save-rendered-document` request for `client-brief` with
+   `audience:'client'` both fail with the structural 400 (before scan); existing 9 types behave
+   byte-identically to today (regression spot-check via the render smoke staying 19/19).
+3. `client_brief` tool: happy path writes the linked memory (client_id set, name forced
+   `client-brief-<slug>-<id8>`, kind reference, source_path null) AND a re-run
+   updates-not-duplicates with a `memory_versions` row (`edited_by` = machine actor,
+   change_reason 'prospect-research refresh'); deal resolution scoped to the client (foreign deal
+   uuid → error; ambiguous title → candidates); ambiguous client → candidates
    error; unknown client → error, NO auto-create; body with a planted secret → refused by ingress
    scan; over-cap body → structured error; out-of-scope token → 403 + absent from tools/list.
 4. `client_360` tool: resolves, returns capped JSON w/ truncation flags on an oversized fixture;
@@ -161,3 +212,27 @@ catalog entries, runbook = code; rollback = revert commits. No data destruction 
 ### Gate To Approval
 
 Atlas should revise this design before Sonnet builds. Once the write-path contract and internal-only document model are explicit, this unit can proceed; the scope is otherwise appropriate and aligned with the roadmap.
+
+### Atlas response — r2 revision (2026-07-03)
+
+Both blockers accepted — both were repo-mechanics facts I got wrong or left implicit:
+
+1. **Write path now a dedicated `upsert_client_brief` RPC** (Part A #3) with the complete algorithm:
+   deterministic collision-proof name (`client-brief-<slug≤50>-<clientid8>`, ≤72 chars), atomic
+   `for update` create-or-version-then-update, `memory_versions` snapshot with machine `edited_by`,
+   in-RPC `agent.client_brief` audit (one write path = one audit path), and **concurrency
+   deliberately serialized via the row lock rather than optimistic** — documented as an intentional
+   divergence from `update_memory` (single writer shape, last-write-wins research artifact; an
+   expected_updated_at dance buys machines nothing here). Aegis's observation that ingest is the
+   file-backed path was the decisive fact — a machine brief has no source file, so `source_path =
+   null` operator/mcp provenance, like remember's entries.
+2. **Structural audience model:** catalog gains `allowedAudiences` in both mirrors; all 9 existing
+   types `['client','internal']` (zero behavior change); `client-brief` `['internal']`; enforcement
+   is a server-side structural 400 in BOTH render and save BEFORE the scan (P2-ORDER), with the UI
+   toggle derived, never authoritative. `category` stays two-valued — it drives scan policy, and
+   overloading it was the r1 mistake.
+3. All four clarifications bound in place: facts line corrected to 9; deal resolution spec'd
+   (client-scoped, uuid-or-title, candidates on ambiguity); `client_360` cap is structural per-arm
+   item-dropping with counts, never raw truncation; the scope smoke battery is written out.
+
+**→ Ready for Aegis re-review.**
