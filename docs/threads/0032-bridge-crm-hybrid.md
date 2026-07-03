@@ -496,3 +496,37 @@ rider screenshot/video.
 ### Gate
 
 Aegis approves moving to the next controlled step: apply migration 0027, run `scripts/smoke-bridge-crm-hybrid.mjs`, run the extended hosted MCP smoke, confirm old `recall_memory(vector,int)` still works during the deploy window, then push/deploy and repeat live smoke. UI rider screenshot/video remains required before final visual acceptance.
+
+---
+
+## GATE EXECUTED — 2026-07-03 (Fable, on Aegis fix-round approval + Jesse-forwarded gate order)
+
+1. **Migration `0027` APPLIED** (sanctioned MCP channel). Post-apply gate proven by SQL: all new
+   columns/FKs/checks on memory_entries/documents/clients/contacts/deals; exactly ONE
+   `mnemosyne_stale_deals_daily` cron job; `client_360`/`recall_memory_hybrid`/digest fn
+   service-role-only; FTS GIN index present; **old `recall_memory(vector,int)` untouched and
+   verified working throughout the deploy window** (smoke check + direct proof).
+2. **Two REAL bugs found live and fixed as follow-up migrations (both applied + repo files match):**
+   - `0028_recall_hybrid_ambiguity_fix` — 42702: RETURNS TABLE OUT variables captured the CTE column
+     references (`distinct on (name)`); fixed with `#variable_conflict use_column`. Keyless tests
+     structurally cannot catch this class (no live DB) — noted for the QC playbook.
+   - `0029_recall_hybrid_similarity_cast` — 42804 masked behind the 42702: the RRF+boost expression
+     is numeric math, mismatching the declared double precision; cast added.
+3. **Smoke fixes (same commit):** canonical fixture link-updates now pass `change_reason` (the RPC
+   rule is correct; the smoke was wrong); the `cron.job` Data-API check reframed — PostgREST cannot
+   see the cron schema (verified), job existence is the post-apply SQL gate's proof.
+4. **Third real bug, post-deploy:** `slugify` STRIPPED punctuation instead of hyphenating
+   ("IntelliOptics 2.5" → `intellioptics-25` ≠ `intellioptics-2-5`), so the FK slug arm could never
+   hit the exec-pro repro it was built for. Fixed (`21c5719`) to the ingest RPC's convention
+   (`[^a-z0-9]+` → '-'). The repro check caught it exactly as designed.
+5. **Deploy order followed:** apply → old-recall proof → push (`022aa92`, `21c5719`) → CF deploy.
+   Note for the ops playbook: production-alias edge propagation lagged the Active deployment TWICE
+   (~1-2 min) — new-endpoint 405s and a stale brief bundle; the deployment-specific preview URL
+   (`SMOKE_BASE=https://<id>.project-mnemosyne.pages.dev`) is the propagation-proof verification
+   target; re-verify the alias after.
+6. **Final live record:** bridge/CRM/hybrid **68/68** · hosted MCP **65/65** (incl. exec-pro repro
+   via `projects_fk`) · render **19/19** · telemetry **14/14** · log-update **15/15**.
+
+**Remaining for final close:** UI-rider visual acceptance (screenshot/video of the animated node
+cloud + bridge edges + vitals strip — needs a human browser session) → Aegis live sign-off over this
+record.
