@@ -109,6 +109,22 @@ export default function MemoryGraph({
   }, [rows, clientNames, dealNames])
 
   useEffect(() => {
+    // Gentle center gravity (2026-07-03, current.png finding): nodes with no links have nothing
+    // tethering them against charge repulsion, so they fly to the frame edges — inflating the
+    // bounding box until zoomToFit renders the connected core as a tiny knot in an empty field.
+    // A weak pull toward the origin (classic forceX/forceY-style gravity, hand-rolled so we don't
+    // import the transitive d3-force dep) keeps singletons hovering as a loose cloud around the
+    // core — which is also just closer to the node-cloud concept art.
+    const fg = fgRef.current
+    if (fg) {
+      const gravity = (strength: number) => {
+        let ns: any[] = []
+        const f = (alpha: number) => { for (const n of ns) { n.vx += (0 - n.x) * strength * alpha; n.vy += (0 - n.y) * strength * alpha } }
+        f.initialize = (nodes: any[]) => { ns = nodes }
+        return f
+      }
+      try { fg.d3Force('gravity', gravity(0.06)); fg.d3ReheatSimulation?.() } catch { /* noop */ }
+    }
     // fit once early (rough), then again after the simulation has settled — the early fit alone
     // framed a still-expanding layout and left most nodes off-camera once the physics spread them
     // out (Jesse-reported header.png finding, 2026-07-03).
