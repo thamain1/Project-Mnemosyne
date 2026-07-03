@@ -131,3 +131,33 @@ human creates via CRM tab), secret-scan is not optional.
 
 Enum values are permanent in PG (documented, harmless — unused values). Allow-list edit, tools,
 catalog entries, runbook = code; rollback = revert commits. No data destruction anywhere.
+
+---
+
+## Aegis Design Review - 2026-07-02
+
+**Verdict: NOT APPROVED AS-IS.** The unit is the right next move, but Sonnet should not build from this design until the two blocking contract gaps below are resolved. Both are design-level issues caused by current repo mechanics, not objections to the loop itself.
+
+### Blocking Findings
+
+1. **`client_brief` write path is under-specified and currently mixes incompatible write semantics.**
+   - The design says the tool writes through the existing sanctioned ingest path, sets `client_id`/`deal_id`, and on re-run uses versioned `update_memory` semantics.
+   - Current repo reality: `remember_memory` is actor-audited but does not accept `client_id`/`deal_id`; `ingest_memory_entry` can now set bridge links but has no actor parameter, no `log_activity`, and no `memory_versions` snapshot; `update_memory` is versioned but only updates an existing row and requires `expected_updated_at`.
+   - Required revision: specify the exact create/update algorithm before build. Acceptable shapes include a dedicated narrow service-role RPC for `client_brief`, or an explicit two-path hosted implementation where create and update both preserve audit/link/version guarantees. The design must state how first create links the memory, how re-run produces a version row, how optimistic concurrency is handled or intentionally serialized, and how `agent.client_brief` activity is written.
+   - Also bind the name strategy. `client-brief-<client-slug>` must respect the existing 80-character memory name limit and avoid collisions for similarly named clients. Use a deterministic suffix, preferably from client id, if needed.
+
+2. **`client-brief` internal-only document posture is not implementable from the current catalog model as written.**
+   - Current `DOC_TYPE_CATALOG` is 9 entries, not 12, and both server/client catalogs type `category` as only `contract | marketing`.
+   - `render-document` and `save-rendered-document` currently default `audience` to `client`; `policyFor` only accepts `contract | marketing`. Simply adding `client-brief` with category `internal` will not compile without expanding the model, and adding it as marketing without stricter audience rules would permit client-facing render/save unless explicitly blocked.
+   - Required revision: define the structural audience model. Preferred: add catalog-level `allowedAudiences` or equivalent, make `client-brief` internal-only in both mirrors, enforce it server-side before scan/render/save, and make the Create tab omit the client audience option for that doc type. Acceptance should prove `client-brief` with `audience:'client'` fails at both render and save, not just that the UI hides it.
+
+### Non-Blocking Clarifications
+
+- Correct the verified-facts line from 12 catalog types to the actual current count, 9, before adding the two new types.
+- Define `deal?: string` resolution for `client_brief`: title scoped to the resolved client, id accepted, ambiguous candidates returned, no guessing.
+- For `client_360` hosted MCP, specify the returned shape for the 16,000-character cap. Prefer structured section truncation flags over raw JSON truncation so agents know which arm was clipped.
+- Extend smoke expectations to include tools/list scoping for the two new scopes, direct out-of-scope calls returning 403, and absence of `client_brief` from a recall-only token.
+
+### Gate To Approval
+
+Atlas should revise this design before Sonnet builds. Once the write-path contract and internal-only document model are explicit, this unit can proceed; the scope is otherwise appropriate and aligned with the roadmap.

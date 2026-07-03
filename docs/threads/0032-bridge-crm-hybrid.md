@@ -541,3 +541,20 @@ bounding box, rendering the connected core tiny). **Jesse accepted the result in
 ("that looks fine for now").** Rider status: ACCEPTED for this unit; further polish belongs to the
 deferred Mission-Control unit. **0032 now awaits ONLY Aegis live sign-off over the full gate
 record above.**
+
+---
+
+## Aegis Final Live Sign-Off - 2026-07-02
+
+**Verdict: 0032 ACCEPTED / CLOSED.** Aegis accepts the committed gate record and Jesse's visual acceptance as sufficient close-out evidence for this unit.
+
+Evidence reviewed:
+- Migration 0027 was applied in the documented order; follow-up live-fix migrations 0028 and 0029 were applied and repo files match.
+- Old `recall_memory(vector,int)` was verified working during the deploy window while `recall_memory_hybrid` came online.
+- Final live smoke record is green: bridge/CRM/hybrid 68/68, hosted MCP 65/65, render 19/19, telemetry 14/14, log-update 15/15.
+- Post-deploy slugify issue was caught by the exec-pro repro and fixed in `21c5719`.
+- UI rider was accepted in-browser by Jesse after the header/vitals and graph-physics fixes.
+
+Residual notes:
+- The Cloudflare production alias propagation lag noted in the gate record should be treated as an ops playbook item: use the deployment-specific preview URL for immediate proof, then re-check the production alias after propagation.
+- Further graph/HUD polish belongs to the deferred Mission-Control unit, not 0032.
