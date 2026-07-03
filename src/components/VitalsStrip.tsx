@@ -44,12 +44,17 @@ export default function VitalsStrip() {
   }, [session])
 
   return (
-    <div className="hidden lg:flex items-center gap-3 text-[11px] text-slate-500">
+    <div className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500 whitespace-nowrap">
       <span title="MCP + endpoint calls, last 7 days (usage_events)">{v.calls} calls/7d</span>
+      <span aria-hidden className="text-slate-700">·</span>
       <span title="provider tokens, last 7 days — embed-only calls report null and are excluded">{v.tokens.toLocaleString()} tok</span>
+      <span aria-hidden className="text-slate-700">·</span>
       <span title="request+response payload bytes, last 7 days — an honest proxy metric, not exact tokens">{fmtCompact(v.bytes)}B</span>
       {v.activeMachines !== null && (
-        <span title="active (non-revoked, non-expired) hosted-MCP machine tokens">{v.activeMachines} machine{v.activeMachines === 1 ? '' : 's'}</span>
+        <>
+          <span aria-hidden className="text-slate-700">·</span>
+          <span title="active (non-revoked, non-expired) hosted-MCP machine tokens">{v.activeMachines} machine{v.activeMachines === 1 ? '' : 's'}</span>
+        </>
       )}
     </div>
   )

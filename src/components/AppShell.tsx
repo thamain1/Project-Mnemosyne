@@ -29,7 +29,11 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/50">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
+        {/* Row 1: brand + nav + identity. The vitals live on their OWN rail below (2026-07-03 fix:
+            inline vitals starved this row of width at max-w-5xl, wrapping the stat labels, the
+            member name, and Sign out onto two lines — see thread 0032 gate record / header.png).
+            whitespace-nowrap + shrink-0 keep identity wrap-proof regardless of future additions. */}
+        <div className="mx-auto max-w-5xl px-4 pt-3 pb-2 flex items-center gap-3">
           <img src="/mnemosyne-logo.png" alt="Mnemosyne" className="w-9 h-9 rounded-lg" />
           <span className="font-semibold tracking-tight">Mnemosyne</span>
           <nav className="ml-6 flex gap-1">
@@ -45,8 +49,7 @@ export default function AppShell({
               </button>
             ))}
           </nav>
-          <VitalsStrip />
-          <div className="ml-auto flex items-center gap-3 text-sm">
+          <div className="ml-auto flex items-center gap-3 text-sm whitespace-nowrap shrink-0">
             <span className="text-slate-400">
               {name}
               {member?.role === 'admin' && <span className="ml-1 text-xs text-blue-400">admin</span>}
@@ -55,6 +58,12 @@ export default function AppShell({
               Sign out
             </button>
           </div>
+        </div>
+        {/* Row 2: the vitals rail — a thin, right-aligned strip. Closer to the V.A.U.L.T. concept
+            (vitals as their own rail) than nav clutter, and it can grow (Mission-Control unit)
+            without ever fighting the nav for width. */}
+        <div className="mx-auto max-w-5xl px-4 pb-2 flex justify-end">
+          <VitalsStrip />
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>

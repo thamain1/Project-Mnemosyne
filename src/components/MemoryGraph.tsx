@@ -109,8 +109,12 @@ export default function MemoryGraph({
   }, [rows, clientNames, dealNames])
 
   useEffect(() => {
-    const t = setTimeout(() => { try { fgRef.current?.zoomToFit(400, 50) } catch { /* noop */ } }, 600)
-    return () => clearTimeout(t)
+    // fit once early (rough), then again after the simulation has settled — the early fit alone
+    // framed a still-expanding layout and left most nodes off-camera once the physics spread them
+    // out (Jesse-reported header.png finding, 2026-07-03).
+    const t1 = setTimeout(() => { try { fgRef.current?.zoomToFit(400, 50) } catch { /* noop */ } }, 600)
+    const t2 = setTimeout(() => { try { fgRef.current?.zoomToFit(600, 60) } catch { /* noop */ } }, 5200)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [data])
 
   function focusNode(n: any) {
@@ -126,13 +130,15 @@ export default function MemoryGraph({
         width={width}
         height={560}
         backgroundColor="#020617"
-        // idle motion: low alpha decay + a near-zero alpha floor means the simulation keeps gently
-        // drifting instead of freezing solid — cooldownTime effectively disabled (a huge ceiling) so it
-        // never fully sleeps, matching the "alive" node-cloud direction.
+        // idle motion, BOUNDED (2026-07-03 fix): the original cooldownTime={Infinity} never let the
+        // physics settle, so nodes kept spreading past the one-time zoomToFit and drifted off-camera.
+        // Low alpha decay still gives ~10-15s of graceful drift, then the engine sleeps; the "alive"
+        // cue persists via link particles (rendered every frame, independent of the physics engine)
+        // and the settled layout stays framed.
         d3AlphaDecay={0.012}
-        d3AlphaMin={0.0008}
         d3VelocityDecay={0.28}
-        cooldownTime={Infinity}
+        cooldownTime={15000}
+        onEngineStop={() => { try { fgRef.current?.zoomToFit(600, 60) } catch { /* noop */ } }}
         nodeLabel={(n: any) => (n.isHub ? `${n.label} (group)` : `${n.label} · ${n.kind}`)}
         linkColor={(l: any) => LINK_COLOR[l.kind] ?? LINK_COLOR.hub}
         linkWidth={(l: any) => (l.kind === 'link' || l.kind === 'applies' || l.kind === 'client' || l.kind === 'deal' ? 1 : 0.5)}
