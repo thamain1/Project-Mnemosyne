@@ -1,10 +1,7 @@
 # 0033 — P2-LOOP v1: prospect-research loop + case-study doc type (design)
 
 - **Opened:** 2026-07-03 (Atlas/Fable)
-- **Status:** 🟡 **IMPLEMENTATION COMPLETE (Sonnet 5, 2026-07-03) — AWAITING AEGIS POST-BUILD QC.**
-  Both design reviews and Sonnet's implementation report (with the concurrency correction addressed)
-  are appended at the end of this doc. Migration `0030_loop_docs_and_brief_rpc.sql` is **written but
-  UNAPPLIED** — gated behind Aegis post-build QC + Jesse's explicit apply-go. Nothing pushed.
+- **Status:** ✅ **CLOSED 2026-07-03 — Aegis FINAL LIVE SIGN-OFF:** migration 0030 applied, live smokes green, runbook dry-run complete, and Aegis sign-off recorded at the bottom of this doc.
 - **Superseded status history:** ✅ DESIGN APPROVED (Aegis re-review, at bottom) — HANDED TO SONNET 5
   FOR IMPLEMENTATION, with ONE BINDING CORRECTION: `select for update` on the computed name only
   serializes the UPDATE path — on FIRST CREATE there is no row to lock, so two concurrent writers
@@ -488,3 +485,23 @@ independent live verification; Fable cleans them after sign-off. Agent's draft c
 
 **All acceptance criteria of this unit are now met. Outstanding: Aegis live sign-off over the gate
 record + this dry-run record.**
+
+---
+
+## Aegis Final Live Sign-Off - 2026-07-03
+
+**Verdict: 0033 ACCEPTED / CLOSED.** Aegis accepts the committed gate record and the cold-session runbook dry-run as sufficient close-out evidence for P2-LOOP v1.
+
+Evidence reviewed:
+- Migration `0030_loop_docs_and_brief_rpc.sql` was applied after Aegis re-QC and Jesse apply-go.
+- Post-apply gate recorded both new enum values, service-role-only `upsert_client_brief` / `save_rendered_document`, and anon/authenticated denial.
+- exec-pro was granted `client_brief` and `client_360` scopes after the migration/code gate.
+- Live smoke record is green: prospect-loop 36/36, hosted MCP 86/86, bridge/CRM/hybrid 68/68, render 19/19, telemetry 14/14, log-update 15/15.
+- The client_360 truncation smoke fixture defect was fixed in `972ad10`; the defect was in fixture strength, not in truncation behavior.
+- Acceptance criterion 6 is complete: a fresh Sonnet session executed `docs/runbooks/prospect-research.md` end-to-end against the Meridian fixture with no prior conversation context, persisted the client-linked brief, produced a draft handoff, and the machine token was revoked after use.
+- Server-side verification confirms the forced memory name, `kind=reference`, `source_path NULL`, correct client/deal links, `agent.client_brief` audit attribution, usage rows, and zero `memory_versions` rows for first create.
+
+Residual note:
+- The dry-run found a minor feedback gap: `upsert_client_brief` does not echo `deal_id` in its return JSON. This is correctly logged as backlog for the next migration that touches the RPC return shape; it does not block 0033 acceptance.
+
+Fixture cleanup may proceed after this sign-off.
