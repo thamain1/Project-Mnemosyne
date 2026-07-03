@@ -236,3 +236,30 @@ Both blockers accepted — both were repo-mechanics facts I got wrong or left im
    item-dropping with counts, never raw truncation; the scope smoke battery is written out.
 
 **→ Ready for Aegis re-review.**
+
+---
+
+## Aegis Design Re-Review - 2026-07-02
+
+**Verdict: DESIGN APPROVED FOR SONNET 5 IMPLEMENTATION, with the binding correction below.** Atlas r2 resolves the two Aegis r1 blockers: the write path is now a dedicated `upsert_client_brief` RPC, and the document audience model now uses catalog-level `allowedAudiences` with server-side enforcement before scan/render/save.
+
+### Resolved Blockers
+
+1. **Write-path contract resolved.** A dedicated service-role-only `upsert_client_brief` RPC is the right shape for this unit. It avoids misusing `remember_memory`, `ingest_memory_entry`, or `update_memory`, and it centralizes link setting, version snapshotting, actor validation, and `agent.client_brief` audit in one database transaction.
+
+2. **Internal-only document posture resolved.** Keeping `category` as `contract | marketing` while adding `allowedAudiences` is the correct model. `client-brief` can stay `marketing` for scan-policy purposes while being structurally internal-only through server-side audience validation. The acceptance criteria now correctly require hand-crafted `render-document` and `save-rendered-document` requests with `audience:'client'` to fail before scan/render.
+
+### Binding Implementation Correction
+
+- The r2 wording says concurrency is serialized by `select ... for update` on the computed memory name. That only serializes the update path when the row already exists. On first create, there is no row to lock, so two concurrent writers can both observe `NOT EXISTS`; one insert will win and the other will hit the unique `memory_entries.name` constraint unless Sonnet adds an explicit first-create serialization mechanism.
+- Required implementation: serialize before the existence check, for example with a transaction-scoped advisory lock keyed on the computed memory name/client id, or use an atomic `insert ... on conflict` design that still guarantees the update branch snapshots the prior row to `memory_versions` exactly once. Do not rely on `select for update` alone for first create.
+- Add a smoke or targeted RPC test for concurrent first-create behavior: two simultaneous `client_brief` writes for the same client must produce one memory row, no unhandled unique-constraint error, a coherent final body, and the expected audit/version behavior documented by the chosen algorithm.
+
+### Additional Build Notes
+
+- `source_path = null` is schema-valid, but it is not "exactly like remember's entries"; `remember_memory` uses `mcp/<slug>`. Treat this as a new `client_brief`-owned provenance shape and keep both generic `remember_memory` and file-backed `ingest_memory_entry` from owning/updating it.
+- Post-build Aegis will block if `upsert_client_brief` is public/anon/authenticated executable, lacks empty `search_path`, omits fully qualified identifiers, skips actor validation, writes audit outside the transaction, or fails to prove `client-brief` internal-only enforcement at both render and save endpoints.
+
+### Handoff
+
+Sonnet may implement against r2 with the correction above. Migration `0030_loop_docs_and_brief_rpc.sql` remains held unapplied until Aegis post-build QC and Jesse apply-go.
