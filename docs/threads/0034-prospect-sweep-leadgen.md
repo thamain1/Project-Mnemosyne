@@ -91,3 +91,32 @@ The no-outreach rule says not even a LinkedIn view, while the hunt section permi
 ### Aegis Assessment
 
 The hard rules are substantively sound. The scoring model is almost cold-agent ready, but the two label/disposition clarifications above should be made before the first live sweep so the first artifact has clean counts and no invented verdict category.
+
+---
+
+## SWEEP #1 EXECUTED — 2026-07-03 (Fable, live web research)
+
+Dispatch: "sweep the California law enforcement and security firms for IntelliOptics" (Jesse).
+Pre-work: Aegis's 3 editorial clarifications applied to the runbook; **ICP Segment B added**
+(LE/security vertical — Jesse-directed, grounded in IntelliOptics' shipped forensic-search/vehicle-ID/
+camera-network features) @ `f4974e4`, per the ICP's own maintenance contract.
+
+**Result:** 17 candidates scored, 0 CRM collisions, **0 HOT / 7 WARM / 7 PARK / 3 DEAD** — full
+scored artifact in the brain: `prospect-sweep-intellioptics-ca-le-security-2026-07-03`.
+
+**Dominant market finding:** a live Flock Safety cancellation/distrust wave across CA (Mountain View
+suspension, SFPD audit w/ 299 improper queries, Santa Clara County exit signals, 53 cities canceled
+nationally) — cities hold approved camera budgets + vendor distrust simultaneously. IntelliOptics'
+local-first architecture is the direct counter-position. Top WARMs ride this wave: **Richmond PD
+(LIVE replacement RFP, April 2026)**, **Berkeley ($2.4M authorized post-Flock-decline)**, **Rialto
+(113 cameras + $2.5M approved June 9)**.
+
+**Acceptance disposition:** criterion 2 = met with the honest variant — scored list in the committed
+shape, nothing written to the CRM; zero HOTs is a CALIBRATION finding recorded in the artifact's ICP
+maintenance notes (one-pass search caps at ~2 confirmable signals; proposal: live-RFP/authorized-
+budget counts as +1 signal equivalent — Jesse/Aegis to ratify before sweep #2). Criterion 3 (first
+real 0033 run) awaits Jesse's triage.
+
+**Triage: which do I create in the CRM?** (Fable's recommendation: Richmond PD first — live RFP;
+Rialto second — freshest money; Berkeley third — biggest budget, needs the source-conflict resolved
+by the research loop.)
