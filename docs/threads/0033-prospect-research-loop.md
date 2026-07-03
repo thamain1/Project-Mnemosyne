@@ -447,3 +447,44 @@ Aegis approves the next controlled step: Jesse apply-go, then apply migration `0
 **Remaining for final close:** runbook dry-run against a fixture client (acceptance criterion 6 —
 agent session executes `docs/runbooks/prospect-research.md` end-to-end with stubbed research) →
 Aegis live sign-off over this record.
+
+---
+
+## RUNBOOK DRY-RUN — acceptance criterion 6 COMPLETE (2026-07-03)
+
+**Setup (Fable):** fixture client "Meridian Fabrication (Fixture)" + deal "Meridian QA Vision Pilot"
+($18K, lead); 1-day machine token `runbook-dryrun` (scopes recall/fetch/brief/client_brief/
+client_360), REVOKED immediately after the run. **Runner: a FRESH Sonnet agent session** (zero
+conversation context — the honest test of runbook self-containment), dispatched with the one-line
+dispatch + stubbed research per the design, driving the hosted MCP over raw JSON-RPC.
+
+**Client-side (agent report):** executed steps 1→5 cleanly — ground (client_360 resolved client+deal;
+scoped recall empty as expected; brief("IntelliOptics 2.5") via projects_fk as the capability
+anchor) → persist (`client_brief` → `client-brief-meridian-fabrication-fixture-4178ae40`,
+refreshed:false, deal linked, no errors) → draft (capabilities-brief markdown, DRAFT-marked, NOT
+rendered/saved — correctly judged case-study framing inapplicable without a citable client outcome)
+→ handoff (render recommendation, deal attachment, no human-creation needed).
+
+**Server-side (Fable, independent):** memory row verified — forced name, kind=reference,
+source_path NULL (the client_brief-owned provenance), client_id AND deal_id both correct, body
+carries Sources + DRAFT markers; `agent.client_brief` audit row attributed to actor
+**runbook-dryrun** with entity=client and refreshed:false; 4 usage_events rows source='mcp' for the
+dry-run actor; 0 memory_versions rows (first create — correct).
+
+**Runbook feedback from the cold session (the test's second deliverable), disposition:**
+1. Case-study vs capabilities-brief ambiguity → **runbook clarified** (case-study requires a citable
+   client-side outcome; own product builds are capability evidence).
+2. "Found but empty" client state undocumented → **runbook clarified** (normal for fresh prospects,
+   changes nothing).
+3. `upsert_client_brief` returns no deal echo — the agent could not positively confirm which deal
+   linked (inferred from no-error per hard rule 4). Real but minor tool-feedback gap → **BACKLOG**:
+   add `deal_id` to the RPC's return jsonb next time a migration touches it (return-shape change;
+   not worth its own migration).
+4. Title format vs CRM display string → **runbook clarified** (natural company name).
+
+Fixture artifacts (client, deal, brief memory, audit/usage rows) are LEFT IN PLACE for Aegis's
+independent live verification; Fable cleans them after sign-off. Agent's draft collateral parked at
+`C:\dev\.scratch\meridian_*.md`.
+
+**All acceptance criteria of this unit are now met. Outstanding: Aegis live sign-off over the gate
+record + this dry-run record.**

@@ -35,7 +35,10 @@ Before researching anything, pull what the brain already knows:
   human must create it first) and continue with steps 2-4 anyway; you can still ground on general
   recall.
 - `recall({ query: "<lead/company name>", client_id: "<uuid, if known from client_360>" })` — hybrid
-  (vector + full-text) search scoped to this client if it exists, otherwise unscoped.
+  (vector + full-text) search scoped to this client if it exists, otherwise unscoped. A client that
+  RESOLVES but has zero linked history ("found but empty" — client_360 returns the row with empty
+  memories/documents arms, scoped recall returns no matches) is a NORMAL state for a fresh prospect:
+  it changes nothing downstream; proceed with steps 2-4 as usual.
 - `brief({ project: "<related project, if any>" })` — only if this research ties to an existing
   4ward project/engagement.
 
@@ -60,7 +63,7 @@ Write the research into the brain, linked to the client:
 ```
 client_brief({
   client: "<name or uuid — from step 1, or the raw name if the client doesn't exist yet>",
-  title: "Client Brief — <Company> — <YYYY-MM-DD>",
+  title: "Client Brief — <Company> — <YYYY-MM-DD>",   // <Company> = the natural company name, not the raw CRM display string (test suffixes etc. don't belong in titles)
   body: "<the full research brief in markdown — Company Snapshot / People / Signals-Why-Now / Fit vs
          4ward Capabilities / Suggested Angle / Draft Outreach / Sources>",
   deal: "<optional — a deal title or uuid, scoped to this client, if one already exists>",
@@ -81,8 +84,11 @@ client_brief({
 Using client_360 + the recall hits + the brief you just wrote as grounding, draft **markdown-only**
 collateral for the human to review — do not render or save it yourself (see Non-goals below):
 
-- A **case-study** framing (if there's a relevant past 4ward engagement to point to) or a
-  **capabilities-brief**-style pitch grounded specifically in what you learned about this lead.
+- A **case-study** framing ONLY if there's a citable client-side success story — a named client with
+  outcomes 4ward can point to. 4ward's own product builds (e.g. IntelliOptics itself) are capability
+  evidence, NOT a case study — use a **capabilities-brief**-style pitch for those, grounded
+  specifically in what you learned about this lead. (Clarified 2026-07-03 from dry-run feedback:
+  "past-engagement anchor" means grounding material, not automatic case-study framing.)
 - Keep the "Suggested Angle" and "Draft Outreach" sections from the persisted brief as the anchor —
   don't invent a new pitch disconnected from what's already been written to the brain.
 
