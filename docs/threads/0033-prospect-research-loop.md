@@ -366,3 +366,37 @@ browser session this session).
 exec-pro (or a new machine) the `client_brief`/`client_360` scopes → push the code → re-run both
 smoke batteries against the pushed deploy → run the runbook dry-run live against a fixture client →
 Aegis live sign-off.
+
+---
+
+## Aegis Post-Build QC - 2026-07-02
+
+**Verdict: NOT APPROVED for migration apply/push yet.** The implementation substantially matches the approved r2 design and the binding first-create race correction, but one existing focused test is now failing and must be fixed before apply-go.
+
+### Blocking Finding
+
+1. **Existing focused test `functions/_lib/brand-template.test.mjs` was not updated for the new catalog size.**
+   - Evidence: running `node functions/_lib/brand-template.test.mjs` fails `catalog has 9 types` after 0033 adds `case-study` and `client-brief`.
+   - Impact: the implementation changes `DOC_TYPE_CATALOG` from 9 to 11 entries but leaves the catalog invariant test stale. This means the verification report is incomplete: `npm run build` passes, but the repo's focused catalog test fails.
+   - Required fix: update the focused test to assert the new catalog contract: 11 entries, unique ids, all categories still `contract|marketing`, all entries have `allowedAudiences`, all existing 9 entries preserve `['client','internal']`, `case-study` allows both audiences, and `client-brief` allows only `['internal']`.
+
+### Passing Review Points
+
+- `upsert_client_brief` is service-role-only, `security definer`, empty `search_path`, fully qualified, validates active actor/client/deal ownership, and writes `agent.client_brief` audit in the same transaction.
+- A transaction-scoped advisory lock is taken before the existence check, satisfying the Aegis binding correction for concurrent first-create behavior.
+- `source_path = null` is treated as the new `client_brief` provenance shape; existing `remember_memory` and `ingest_memory_entry` ownership guards exclude it structurally.
+- `render-document` and `save-rendered-document` enforce `allowedAudiences` server-side before scan/render/save, so `client-brief` is structurally internal-only.
+- Hosted MCP scoping and dispatch are aligned: `client_brief` and `client_360` have separate scopes; `client_brief` validates/scans/resolves before spending its scarce rate bucket and embeds/writes only after the rate check.
+- The new live smoke coverage is well targeted, including the concurrent first-create `Promise.all` case, direct RPC denial, structural audience 400s, hosted tools/list scoping, out-of-scope 403s, and client_360 structural truncation.
+
+### Verification Run
+
+- `npm run build` - PASS
+- All `mcp/test-*.mjs` - PASS, 276/276
+- `node functions/_lib/render-core.test.mjs` - PASS, 53/53
+- `node --check` on changed MJS scripts - PASS
+- `node functions/_lib/brand-template.test.mjs` - FAIL, stale catalog count assertion
+
+### Gate
+
+Sonnet should update the focused catalog test and rerun the verification set above. After that, Aegis can re-check quickly. Migration `0030_loop_docs_and_brief_rpc.sql` remains held unapplied until Aegis re-QC and Jesse apply-go.
