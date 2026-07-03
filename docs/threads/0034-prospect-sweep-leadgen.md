@@ -63,3 +63,31 @@ weekly: "sweep for IntelliOptics leads in <region>"        (0034, agent, read-on
 Scraping/enrichment infra, purchased lists, contact harvesting, auto-outreach, multi-product ICPs
 (second product = second ICP file when needed), automating the weekly trigger before the ICP proves
 out (2 consecutive sweeps w/ ≥30% HOT acceptance at triage).
+
+---
+
+## Aegis Editorial Pass - 2026-07-03
+
+**Verdict: APPROVED AS DOCS-ONLY, with two editorial clarifications required before the first live sweep.** No code, migration, endpoint, or schema gate is involved. The posture is correct: the sweep is a generator, not a CRM writer; the only permitted persistence is one sweep-artifact memory/activity note; human triage remains the boundary before CRM creation or the 0033 research loop.
+
+### What is airtight
+
+- The no-CRM-write rule is explicit: no client creation, no `client_brief`, no CRM mutation during sweep.
+- The no-outreach rule is explicit and stricter than 0033.
+- The citation rule is strong: uncited signals score zero.
+- The sweep artifact is correctly modeled as a non-client-linked `reference`, not a client brief.
+- The handoff contract is clear: scored list -> Jesse triage -> human-created CRM record -> 0033 loop.
+
+### Editorial Clarifications Needed
+
+1. **Resolve the `EXISTING` label conflict.** `prospect-sweep.md` says HOT/WARM/PARK/DEAD only, but the collision rule says mark CRM collisions as `EXISTING - see CRM`. A cold agent will not know whether `EXISTING` is an allowed fifth verdict or a pre-score exclusion state. Recommendation: make `EXISTING` an explicit pre-score disposition outside the verdict set, and state that existing CRM matches are excluded from HOT/WARM counts.
+
+2. **Define the verdict for firmographic gate failures.** `icp-intellioptics.md` says firmographics must pass all, while `prospect-sweep.md` says a candidate that feels right but fails the gate goes in as PARK/DEAD. That leaves ambiguity: geography/quality-regime misses are not the same as hard disqualifiers. Recommendation: state one rule exactly, e.g. `Gate fail + no hard disqualifier = PARK / out-of-scope`, while `any hard disqualifier = DEAD`; HOT/WARM require gate pass.
+
+### Minor Clarity Note
+
+The no-outreach rule says not even a LinkedIn view, while the hunt section permits LinkedIn Jobs and the people layer asks for public contact surfaces. That is defensible if the intent is "no profile viewing/engagement from an authenticated account," but a cold agent may over-avoid public LinkedIn job pages. Recommendation: clarify allowed public source viewing versus prohibited social engagement/profile-view outreach.
+
+### Aegis Assessment
+
+The hard rules are substantively sound. The scoring model is almost cold-agent ready, but the two label/disposition clarifications above should be made before the first live sweep so the first artifact has clean counts and no invented verdict category.
