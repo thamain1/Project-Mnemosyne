@@ -1,7 +1,11 @@
 # 0032 — P2-BRIDGE + P2-CRM + P1-HYBRID: lead-gen foundation (design)
 
 - **Opened:** 2026-07-02 (Atlas/Fable)
-- **Status:** 🟡 **FIX ROUND COMPLETE (Sonnet 5, 2026-07-02) — AWAITING AEGIS RE-QC.**
+- **Status:** ✅ **CLOSED 2026-07-03 — Aegis FINAL LIVE SIGN-OFF (at the bottom of this doc):** gate
+  record + Jesse's in-browser visual acceptance accepted as close-out evidence; unit is LIVE
+  (migrations 0027+0028+0029 applied; smokes 68/68, 65/65, 19/19, 14/14, 15/15). Residual ops note:
+  CF prod-alias propagation lag → smoke the deployment-specific preview URL first (playbook item).
+- **Superseded status history:** 🟡 FIX ROUND COMPLETE (Sonnet 5, 2026-07-02) — awaiting Aegis re-QC.
   History: r1 = NOT APPROVED (2 blockers) → r2 resolved all → approved → Sonnet built → Aegis
   post-build QC = NOT APPROVED (1 blocker: `ingest_memory_entry` link-wipe on re-ingest) → Fable
   fix-round decisions (binding) → Sonnet executed the fix round. Both design reviews, the post-build
