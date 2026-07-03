@@ -423,3 +423,27 @@ Sonnet should update the focused catalog test and rerun the verification set abo
 ### Gate
 
 Aegis approves the next controlled step: Jesse apply-go, then apply migration `0030_loop_docs_and_brief_rpc.sql`, run `scripts/smoke-prospect-loop.mjs` and the extended `scripts/smoke-hosted-mcp.mjs` live, grant the chosen machine `client_brief`/`client_360` scopes as documented, push/deploy, rerun live smokes, complete the runbook dry-run against a fixture client, then return to Aegis for live sign-off.
+
+---
+
+## GATE EXECUTED — 2026-07-03 (Fable, on Aegis re-QC approval + Jesse-forwarded gate)
+
+1. **Migration `0030` APPLIED** (sanctioned MCP channel). Post-apply gate: both enum values present;
+   `upsert_client_brief` + `save_rendered_document` service-role-only (anon/authenticated denied,
+   service_role granted). Pre-apply review noted the enum-in-transaction rule is satisfied (new
+   values only referenced as text in the allow-list; casts happen at call time).
+2. **exec-pro granted `client_brief` + `client_360` scopes** (now all 6).
+3. Code was already deployed (`d90ad93` — pushed with the QC round; safe because no token carried
+   the new scopes until step 2, and the audience enforcement is backward-compatible).
+4. **Live record (against the deployment-specific preview URL per the ops playbook, then alias):**
+   prospect-loop **36/36** · hosted MCP **86/86** · bridge/CRM/hybrid **68/68** · render **19/19**
+   · telemetry **14/14** · log-update **15/15**.
+5. **One smoke-fixture defect found and fixed live (`972ad10`):** the client_360 truncation check
+   seeded 60 short-titled docs ≈ 14KB — UNDER the 16K cap, so the tool's `truncated={}` was CORRECT
+   output and the check failed on its own weak fixture. Strengthened to 120 long-titled docs (~55KB,
+   guaranteed over-budget) + seed inserts now error-checked. The truncation implementation itself
+   was right all along.
+
+**Remaining for final close:** runbook dry-run against a fixture client (acceptance criterion 6 —
+agent session executes `docs/runbooks/prospect-research.md` end-to-end with stubbed research) →
+Aegis live sign-off over this record.
