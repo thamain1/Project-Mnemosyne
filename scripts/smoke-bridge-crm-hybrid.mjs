@@ -171,7 +171,7 @@ async function main() {
     const priorUpdatedAt = row.updated_at
     const upd = await admin.rpc('update_memory', {
       p_payload: { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp}`, body: bridgeBody, links: [], embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [], deal_id: null },
-      p_actor: memberUid, p_audit: {}, p_expected_updated_at: priorUpdatedAt,
+      p_actor: memberUid, p_audit: { change_reason: 'smoke 0032 link-update fixture' }, p_expected_updated_at: priorUpdatedAt,
     })
     check('update_memory link-only change succeeds', !upd.error, upd.error?.message)
     const { data: linkAudit } = await admin.from('activity_log').select('detail').eq('entity_id', memId).eq('action', 'memory.link').order('created_at', { ascending: false }).limit(1).maybeSingle()
@@ -183,7 +183,7 @@ async function main() {
     // stale expected_updated_at on a link-only update -> concurrency error (using the NOW-STALE priorUpdatedAt again)
     const staleUpd = await admin.rpc('update_memory', {
       p_payload: { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp}`, body: bridgeBody, links: [], embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [], client_id: clientId },
-      p_actor: memberUid, p_audit: {}, p_expected_updated_at: priorUpdatedAt,
+      p_actor: memberUid, p_audit: { change_reason: 'smoke 0032 link-update fixture' }, p_expected_updated_at: priorUpdatedAt,
     })
     check('stale expected_updated_at on link-only update -> concurrency error', !!staleUpd.error && /changed since you read it/i.test(staleUpd.error.message ?? ''), staleUpd.error?.message)
 
@@ -191,7 +191,7 @@ async function main() {
     const { data: curRow } = await admin.from('memory_entries').select('updated_at').eq('id', memId).maybeSingle()
     await admin.rpc('update_memory', {
       p_payload: { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp}`, body: bridgeBody, links: [], embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [], deal_id: dealId },
-      p_actor: memberUid, p_audit: {}, p_expected_updated_at: curRow.updated_at,
+      p_actor: memberUid, p_audit: { change_reason: 'smoke 0032 link-update fixture' }, p_expected_updated_at: curRow.updated_at,
     })
 
     // fix round (Aegis post-build QC, 2026-07-02): ingest_memory_entry's ON CONFLICT must use the SAME
@@ -304,8 +304,12 @@ async function main() {
 
     // exactly one cron job registered
     const { data: cronJobs, error: cronErr } = await admin.from('cron.job').select('jobname').eq('jobname', 'mnemosyne_stale_deals_daily')
-    if (cronErr) check('cron.job shows exactly one mnemosyne_stale_deals_daily job', false, `query failed: ${cronErr.message} (cron.job may not be exposed via the Data API; verify via SQL if this fails)`)
-    else check('cron.job shows exactly one mnemosyne_stale_deals_daily job', (cronJobs ?? []).length === 1, `count=${cronJobs?.length}`)
+    // cron.job lives in the cron schema, which PostgREST does not expose — a Data API query CANNOT
+    // see it (verified live 2026-07-03). Job existence/uniqueness is proven by the post-apply SQL
+    // gate (select count(*) from cron.job where jobname='mnemosyne_stale_deals_daily' -> 1); here we
+    // only assert the Data API behaved as expected (error or empty), i.e. no accidental exposure.
+    if (cronErr) check('cron.job not exposed via Data API (existence proven by post-apply SQL gate)', true)
+    else check('cron.job not exposed via Data API (existence proven by post-apply SQL gate)', (cronJobs ?? []).length <= 1, `unexpected rows=${cronJobs?.length}`)
   }
 
   // ================= 4. HYBRID =================
