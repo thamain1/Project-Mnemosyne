@@ -72,9 +72,13 @@ type ResolveResult =
   | { ok: true; via: 'memory_slug_fallback'; name: string; entry: MemEntry }
   | { ok: false; reason: 'no_match' | 'ambiguous'; candidates: string[] }
 
-// lower, spaces/underscores -> '-', strip anything else non-alnum/hyphen, collapse/trim hyphens.
+// lower, every run of non-alphanumerics -> ONE '-', trim hyphens. This is the SAME convention the
+// ingest RPC enforces for memory-entry slugs (regexp_replace(lower(...), '[^a-z0-9]+', '-', 'g')) —
+// deliberately: gate-run fix 2026-07-03, the original version STRIPPED punctuation instead of
+// hyphenating it, so slugify("IntelliOptics 2.5") gave "intellioptics-25" while an agent types
+// the entry-style slug "intellioptics-2-5" — the FK slug arm could never match its own repro case.
 function slugify(input: string): string {
-  return input.toLowerCase().trim().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+  return input.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
 // Resolve a project name. Path 1 (FK): case-insensitive exact match against projects.name first; then
