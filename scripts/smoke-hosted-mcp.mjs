@@ -554,6 +554,81 @@ async function main() {
     for (const id of seedIds) await admin.from('documents').delete().eq('id', id)
   }
 
+  // ================= 11. 2026-07-04 OWNERSHIP-PARITY — get_secret + remember + update =================
+  // All 7 team_members are co-owners; get_secret/remember/update moved from "structurally absent"
+  // (thread 0027) to scope-gated, same as every other tool. Two owner-shaped fixtures: a role='member'
+  // machine (team-sensitivity secrets only) and a role='admin' machine (admin/restricted too) — proves
+  // get_secret_operator's existing sensitivity gate (migration 0010) is actually reachable through the
+  // hosted transport, not just re-exposed blindly.
+  {
+    const ownerScopes = ['recall', 'fetch', 'log_update', 'brief', 'get_secret', 'remember', 'update']
+    const ownerMachineId = await createMachine(`smoke-mcp-owner-${stamp}`, ownerScopes)
+    const { token: ownerToken } = await (async () => { const t = mintToken(); await insertToken(ownerMachineId, t.hash, 'owner'); return t })()
+
+    const adminMachineId = await createMachine(`smoke-mcp-owneradmin-${stamp}`, ['get_secret'])
+    await admin.from('team_members').update({ role: 'admin' }).eq('id', adminMachineId)
+    const { token: adminOwnerToken } = await (async () => { const t = mintToken(); await insertToken(adminMachineId, t.hash, 'owner-admin'); return t })()
+
+    const ownerList = await call(ownerToken, rpcReq('tools/list', {}))
+    const ownerNames = (ownerList.json?.result?.tools ?? []).map((t) => t.name).sort()
+    check('tools/list (owner scope) -> includes get_secret, remember, update with schemas', ownerScopes.every((s) => ownerNames.includes(s)) && ownerList.json.result.tools.every((t) => !!t.inputSchema), ownerNames.join(','))
+
+    // ---- remember + fetch + update round trip ----
+    const rememberName = `smoke-mcp-remember-${stamp}`
+    const rememberCall = await call(ownerToken, rpcReq('tools/call', { name: 'remember', arguments: { title: `Smoke Remember ${stamp}`, body: 'Fixture body for the ownership-parity smoke.', kind: 'reference', name: rememberName } }))
+    check('remember round-trips -> 200, not isError', rememberCall.status === 200 && !rememberCall.json?.result?.isError, JSON.stringify(rememberCall.json).slice(0, 200))
+
+    const rememberSecretCall = await call(ownerToken, rpcReq('tools/call', { name: 'remember', arguments: { title: 'x', body: 'leaked key sk_live_' + 'x'.repeat(24), kind: 'reference' } }))
+    check('remember with a planted secret in body -> refused (ingress scan)', rememberSecretCall.status === 200 && rememberSecretCall.json?.result?.isError === true && /refused/i.test(rememberSecretCall.json.result.content[0].text))
+
+    const { data: rememberedRow } = await admin.from('memory_entries').select('updated_at').eq('name', rememberName).maybeSingle()
+    check('remember actually wrote the row (visible to a direct DB read)', !!rememberedRow)
+
+    const updateCall = await call(ownerToken, rpcReq('tools/call', { name: 'update', arguments: { name: rememberName, title: `Smoke Remember ${stamp} (revised)`, body: 'Revised fixture body.', kind: 'reference', change_reason: 'smoke revision', expected_updated_at: rememberedRow?.updated_at } }))
+    check('update round-trips with a fresh expected_updated_at -> 200, not isError', updateCall.status === 200 && !updateCall.json?.result?.isError, JSON.stringify(updateCall.json).slice(0, 200))
+
+    const staleUpdateCall = await call(ownerToken, rpcReq('tools/call', { name: 'update', arguments: { name: rememberName, title: 'stale write', body: 'should be rejected', kind: 'reference', expected_updated_at: rememberedRow?.updated_at } }))
+    check('update with a STALE expected_updated_at -> tool error (optimistic concurrency enforced through hosted transport)', staleUpdateCall.status === 200 && staleUpdateCall.json?.result?.isError === true)
+
+    // ---- get_secret: team-sensitivity (any actor with the scope) vs admin-sensitivity (role=admin only) ----
+    const { data: teamSecretId, error: teamSecretErr } = await admin.rpc('set_secret', { p_actor: adminMachineId, p_meta: { service: `smoke-mcp-team-${stamp}`, sensitivity: 'team' }, p_secret: `team-value-${stamp}` })
+    if (teamSecretErr) throw new Error(`team secret fixture: ${teamSecretErr.message}`)
+    const { data: adminSecretId, error: adminSecretErr } = await admin.rpc('set_secret', { p_actor: adminMachineId, p_meta: { service: `smoke-mcp-admin-${stamp}`, sensitivity: 'admin' }, p_secret: `admin-value-${stamp}` })
+    if (adminSecretErr) throw new Error(`admin secret fixture: ${adminSecretErr.message}`)
+
+    const memberReadsTeam = await call(ownerToken, rpcReq('tools/call', { name: 'get_secret', arguments: { secret_id: teamSecretId } }))
+    check('role=member owner reads a team-sensitivity secret -> the real value', memberReadsTeam.status === 200 && memberReadsTeam.json?.result?.content?.[0]?.text === `team-value-${stamp}`, JSON.stringify(memberReadsTeam.json).slice(0, 200))
+
+    const memberReadsAdmin = await call(ownerToken, rpcReq('tools/call', { name: 'get_secret', arguments: { secret_id: adminSecretId } }))
+    check('role=member owner reading an admin-sensitivity secret -> tool error (not authorized)', memberReadsAdmin.status === 200 && memberReadsAdmin.json?.result?.isError === true && /not authorized/i.test(memberReadsAdmin.json.result.content[0].text))
+
+    const adminReadsAdmin = await call(adminOwnerToken, rpcReq('tools/call', { name: 'get_secret', arguments: { secret_id: adminSecretId } }))
+    check('role=admin owner reads an admin-sensitivity secret -> the real value', adminReadsAdmin.status === 200 && adminReadsAdmin.json?.result?.content?.[0]?.text === `admin-value-${stamp}`, JSON.stringify(adminReadsAdmin.json).slice(0, 200))
+
+    const missingSecret = await call(ownerToken, rpcReq('tools/call', { name: 'get_secret', arguments: { secret_id: randomUUID() } }))
+    check('get_secret on an unknown id -> tool error, not a crash', missingSecret.status === 200 && missingSecret.json?.result?.isError === true)
+
+    // ---- scope-gating: a token without these scopes never sees or can call them ----
+    const outOfScopeSecret = await call(limitedToken, rpcReq('tools/call', { name: 'get_secret', arguments: { secret_id: teamSecretId } }))
+    check('get_secret out-of-scope -> 403', outOfScopeSecret.status === 403)
+    const outOfScopeRemember = await call(limitedToken, rpcReq('tools/call', { name: 'remember', arguments: { title: 'x', body: 'x', kind: 'reference' } }))
+    check('remember out-of-scope -> 403', outOfScopeRemember.status === 403)
+
+    // ---- cleanup: fixture secrets, fixture memory entry, fixture machines ----
+    await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: teamSecretId }).catch(() => {})
+    await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: adminSecretId }).catch(() => {})
+    const { data: memRow } = await admin.from('memory_entries').select('id').eq('name', rememberName).maybeSingle()
+    if (memRow) {
+      await admin.from('memory_chunks').delete().eq('memory_entry_id', memRow.id)
+      await admin.from('memory_versions').delete().eq('entry_id', memRow.id)
+      await admin.from('memory_entries').delete().eq('id', memRow.id)
+    }
+    for (const id of [ownerMachineId, adminMachineId]) {
+      await admin.from('machine_tokens').delete().eq('member_id', id)
+      await cleanupMember(admin, id)
+    }
+  }
+
   console.log(`\n[smoke-hosted-mcp] pass=${pass} fail=${fail}`)
   if (fail) process.exitCode = 1
 }

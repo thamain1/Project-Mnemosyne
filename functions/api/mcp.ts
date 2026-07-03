@@ -23,12 +23,26 @@
 // `https://claude.ai`) is rejected exactly like any other foreign origin, pre-auth, per originAllowed().
 //
 // Reuses the SAME core logic as the local stdio MCP server — not a reimplementation:
-//   - recall:     mcp/lib/recall-core.mjs  (embed + recall_memory RPC)
-//   - fetch:      mcp/lib/fetch-core.mjs   (get_memory_entry RPC + egress secret-redaction, now with
-//                 max_chars — shared by both surfaces per thread 0027 build instruction #1)
-//   - log_update: mcp/lib/log-core.mjs     (log_activity RPC + secret-scan)
-// get_secret and remember/update are NOT exposed here — structurally absent, not scope-gated (vault
-// reach stays local-single-operator forever; durable-memory writes deferred to a future unit).
+//   - recall:      mcp/lib/recall-core.mjs      (embed + recall_memory RPC)
+//   - fetch:       mcp/lib/fetch-core.mjs       (get_memory_entry RPC + egress secret-redaction, now
+//                  with max_chars — shared by both surfaces per thread 0027 build instruction #1)
+//   - log_update:  mcp/lib/log-core.mjs         (log_activity RPC + secret-scan)
+//   - get_secret:  mcp/lib/getsecret-core.mjs   (get_secret_operator RPC, sensitivity-gated)
+//   - remember:    mcp/lib/remember-core.mjs    (ingress secret-scan + embed + remember_memory RPC)
+//   - update:      mcp/lib/update-core.mjs      (ingress secret-scan + embed + update_memory RPC,
+//                  mandatory optimistic-concurrency)
+//
+// OWNERSHIP-PARITY DECISION (2026-07-04, Jesse): thread 0027 originally excluded get_secret/remember/
+// update from the remote surface "forever" — that call was made under an employee/agent trust model
+// (minimize blast radius of a stolen machine token). All 7 team_members are co-owners of the company
+// with signing authority; withholding company secrets from people who already hold ultimate legal
+// authority over them doesn't reduce real risk, it just adds friction (they'd call Jesse for the
+// password anyway). So all 7 get full-parity owner machine identities (scripts/provision-machine.mjs
+// --admin). A machine representing an owner should be provisioned with role='admin' (team_members.role)
+// so get_secret_operator's admin/restricted sensitivity gate actually opens for them — a role='member'
+// machine can still call get_secret but is limited to 'team'-sensitivity secrets, identical to the
+// local operator model (migration 0010's sensitivity gate is unchanged; this only wires the existing
+// RPC into the hosted transport).
 
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit } from '../_lib/rate-limit'
@@ -36,7 +50,9 @@ import { logUsage } from '../_lib/usage'
 import { makeEmbedQuery, runRecall, MAX_K, MAX_QUERY_LEN, DEFAULT_K } from '../../mcp/lib/recall-core.mjs'
 import { runFetch, MAX_NAME_LEN, MAX_CHARS_CAP } from '../../mcp/lib/fetch-core.mjs'
 import { runLogUpdate, MAX_ACTION_LEN } from '../../mcp/lib/log-core.mjs'
-import { makeEmbedDoc } from '../../mcp/lib/remember-core.mjs'
+import { makeEmbedDoc, runRemember, MAX_TITLE_LEN, MAX_BODY_LEN } from '../../mcp/lib/remember-core.mjs'
+import { runUpdate, MAX_CHANGE_REASON_LEN } from '../../mcp/lib/update-core.mjs'
+import { runGetSecret } from '../../mcp/lib/getsecret-core.mjs'
 import { runBrief } from '../_lib/brief'
 import { prepareClientBrief, executeClientBrief, runClient360, type PreparedClientBrief } from '../_lib/client-brief'
 
@@ -56,6 +72,12 @@ const RATE_LIMITS: Record<string, { limit: number; windowSeconds: number }> = {
   fetch: { limit: 20, windowSeconds: 60 },
   log_update: { limit: 30, windowSeconds: 60 },
   brief: { limit: 10, windowSeconds: 60 },
+  // get_secret is a single audited row-read (cheap), but sensitive — keep it well below recall/fetch.
+  get_secret: { limit: 15, windowSeconds: 60 },
+  // remember/update embed via Gemini (real cost + external call), same class as client_brief but not
+  // client-resolution-gated — 10/min is generous for a human owner, tight enough to blunt a runaway loop.
+  remember: { limit: 10, windowSeconds: 60 },
+  update: { limit: 10, windowSeconds: 60 },
   // client_brief writes + embeds a research artifact — deliberately tight (thread 0033 design: 6/hour)
   // vs. every other bucket's 60s window; a prospect-research session does a handful of these, not dozens.
   client_brief: { limit: 6, windowSeconds: 3600 },
@@ -112,6 +134,50 @@ const TOOLS: ToolDef[] = [
         detail: { type: 'object', description: 'Optional flat JSON object (≤4KB). A "project" string key is resolved to a project link when possible.' },
       },
       required: ['action'],
+    },
+  },
+  {
+    name: 'get_secret',
+    scope: 'get_secret',
+    description: 'Retrieve a stored credential from the 4ward secrets vault by its id. Sensitivity-gated: team-sensitivity secrets are available to any actor holding this scope; admin/restricted secrets additionally require the actor to be role=admin. Every read is audited (secret.read). The decrypted value is returned in the tool result — never log it.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        secret_id: { type: 'string', description: 'The secrets_vault row id (uuid) to retrieve.' },
+      },
+      required: ['secret_id'],
+    },
+  },
+  {
+    name: 'remember',
+    scope: 'remember',
+    description: 'Write a new memory into the 4ward shared brain. Embeds + stores the title/body under a slug derived from the title (or an explicit name). Refuses content containing secrets — secrets belong in the vault (see get_secret), never embedded here.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        title: { type: 'string', maxLength: MAX_TITLE_LEN, description: 'Short title; also used as the entry summary.' },
+        body: { type: 'string', maxLength: MAX_BODY_LEN, description: 'The memory content (markdown). [[links]] are captured.' },
+        kind: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'Memory category.' },
+        name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'Optional explicit slug; defaults to the slugified title.' },
+      },
+      required: ['title', 'body', 'kind'],
+    },
+  },
+  {
+    name: 'update',
+    scope: 'update',
+    description: 'Revise an EXISTING memory entry by name. Read it with fetch first, fold in the detail, then update — prior content is saved as a reversible version. Pass expected_updated_at (from fetch) for safe concurrent edits. Refuses secrets. Does not create entries (use remember for new ones).',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'Slug of the existing entry to revise.' },
+        title: { type: 'string', maxLength: MAX_TITLE_LEN, description: 'New title / summary.' },
+        body: { type: 'string', maxLength: MAX_BODY_LEN, description: 'New full content (markdown). [[links]] are captured.' },
+        kind: { type: 'string', enum: ['user', 'feedback', 'project', 'reference'], description: 'Memory category.' },
+        change_reason: { type: 'string', maxLength: MAX_CHANGE_REASON_LEN, description: 'Note on what changed (stored in history + audit). REQUIRED when revising a canonical memory/ entry.' },
+        expected_updated_at: { type: 'string', description: 'REQUIRED ISO timestamp the entry showed when you fetched it; the update is rejected if the entry changed since (optimistic concurrency — forces read-before-write).' },
+      },
+      required: ['name', 'title', 'body', 'kind', 'expected_updated_at'],
     },
   },
   {
@@ -402,6 +468,23 @@ async function callTool(name: string, args: any, ctx: { admin: any; gemini: stri
       } catch { /* best-effort linking only; never blocks the write */ }
     }
     const text = await runLogUpdate({ ...args, entity_type, entity_id }, { rpc, actorId: actor.id })
+    return toolText(text)
+  }
+
+  if (name === 'get_secret') {
+    const value = await runGetSecret(args, { rpc, actorId: actor.id })
+    return toolText(value)
+  }
+
+  if (name === 'remember') {
+    const embedDoc = makeEmbedDoc({ apiKey: gemini })
+    const text = await runRemember(args, { embedDoc, rpc, actorId: actor.id })
+    return toolText(text)
+  }
+
+  if (name === 'update') {
+    const embedDoc = makeEmbedDoc({ apiKey: gemini })
+    const text = await runUpdate(args, { embedDoc, rpc, actorId: actor.id })
     return toolText(text)
   }
 

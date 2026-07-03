@@ -4,7 +4,13 @@
 // "if count > 0 return" gate — see feedback_idempotent_seeds). The plaintext token is shown
 // EXACTLY ONCE here; only its SHA-256 hash is ever stored.
 //
-// Run: node --env-file=.env.local scripts/provision-machine.mjs <label> [--scopes a,b,c] [--expires-days N]
+// --admin sets team_members.role='admin' on this machine row. This matters ONLY for the get_secret
+// scope: get_secret_operator (migration 0010) gates admin/restricted-sensitivity secrets on
+// role='admin'; a role='member' machine can still call get_secret but only for team-sensitivity
+// secrets. Use --admin for machine identities representing a company owner (2026-07-04 ownership-
+// parity decision, see functions/api/mcp.ts header) — NOT for routine agent/build-machine tokens.
+//
+// Run: node --env-file=.env.local scripts/provision-machine.mjs <label> [--scopes a,b,c] [--expires-days N] [--admin]
 // Reads: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 
 import { createClient } from '@supabase/supabase-js'
@@ -14,30 +20,33 @@ const URL = process.env.VITE_SUPABASE_URL
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!URL || !SERVICE) { console.error('missing env (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)'); process.exit(1) }
 
-const ALL_SCOPES = ['recall', 'fetch', 'log_update', 'brief', 'client_brief', 'client_360']
+const ALL_SCOPES = ['recall', 'fetch', 'log_update', 'brief', 'get_secret', 'remember', 'update', 'client_brief', 'client_360']
 const DEFAULT_SCOPES = ['recall', 'log_update']   // minimal by default, per thread 0027's stated posture
 
 function parseArgs(argv) {
   const label = argv[0]
   if (!label || label.startsWith('--')) {
-    console.error('usage: node scripts/provision-machine.mjs <label> [--scopes recall,fetch,log_update,brief,client_brief,client_360] [--expires-days N]')
+    console.error('usage: node scripts/provision-machine.mjs <label> [--scopes recall,fetch,log_update,brief,get_secret,remember,update,client_brief,client_360] [--expires-days N] [--admin]')
     process.exit(1)
   }
   let scopes = DEFAULT_SCOPES
   let expiresDays
+  let isAdmin = false
   for (let i = 1; i < argv.length; i++) {
     if (argv[i] === '--scopes' && argv[i + 1]) { scopes = argv[i + 1].split(',').map((s) => s.trim()).filter(Boolean); i++ }
     else if (argv[i] === '--expires-days' && argv[i + 1]) { expiresDays = Number(argv[i + 1]); i++ }
+    else if (argv[i] === '--admin') { isAdmin = true }
   }
   if (!scopes.length) { console.error('at least one scope is required'); process.exit(1) }
   for (const s of scopes) if (!ALL_SCOPES.includes(s)) { console.error(`unknown scope "${s}" — must be one of ${ALL_SCOPES.join(', ')}`); process.exit(1) }
   if (expiresDays !== undefined && (!Number.isFinite(expiresDays) || expiresDays <= 0)) { console.error('--expires-days must be a positive number'); process.exit(1) }
-  return { label, scopes, expiresDays }
+  return { label, scopes, expiresDays, isAdmin }
 }
 
 async function main() {
-  const { label, scopes, expiresDays } = parseArgs(process.argv.slice(2))
+  const { label, scopes, expiresDays, isAdmin } = parseArgs(process.argv.slice(2))
   const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
+  const role = isAdmin ? 'admin' : 'member'
 
   // idempotent on label: findFirst-then-create
   const { data: existing, error: findErr } = await admin
@@ -47,14 +56,14 @@ async function main() {
   let memberId
   if (existing) {
     memberId = existing.id
-    const { error: updErr } = await admin.from('team_members').update({ scopes, active: true }).eq('id', memberId)
+    const { error: updErr } = await admin.from('team_members').update({ scopes, active: true, role }).eq('id', memberId)
     if (updErr) throw new Error(`update failed: ${updErr.message}`)
-    console.log(`Machine "${label}" already exists (${memberId}) — scopes updated to [${scopes.join(', ')}].`)
+    console.log(`Machine "${label}" already exists (${memberId}) — scopes updated to [${scopes.join(', ')}], role=${role}.`)
   } else {
     memberId = randomUUID()   // team_members.id has no DB default (historically = auth.users.id); machine rows generate client-side
-    const { error: insErr } = await admin.from('team_members').insert({ id: memberId, full_name: label, email: null, kind: 'machine', scopes, active: true })
+    const { error: insErr } = await admin.from('team_members').insert({ id: memberId, full_name: label, email: null, kind: 'machine', scopes, active: true, role })
     if (insErr) throw new Error(`insert failed: ${insErr.message}`)
-    console.log(`Machine "${label}" created (${memberId}), scopes [${scopes.join(', ')}].`)
+    console.log(`Machine "${label}" created (${memberId}), scopes [${scopes.join(', ')}], role=${role}.`)
   }
 
   const token = 'mnk_' + randomBytes(32).toString('base64url')
