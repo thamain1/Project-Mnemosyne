@@ -533,11 +533,19 @@ async function main() {
     const client360UnknownData = JSON.parse(client360Unknown.json?.result?.content?.[0]?.text ?? '{}')
     check('client_360 unknown-client soft error has reason "not_found"', client360UnknownData.error === 'not_found')
 
-    // seed enough documents directly (bypassing client_brief's budget) to force the 16,000-char cap
-    const seedIds = Array.from({ length: 60 }, () => randomUUID())
+    // seed enough documents directly (bypassing client_brief's budget) to force the 16,000-char cap.
+    // Fixture strength matters (2026-07-03 gate-run fix): 60 short-titled docs ≈ 14KB of JSON — UNDER
+    // the cap, so truncated={} was the CORRECT tool output and the check failed on its own weak
+    // fixture. 120 docs with ~260-char titles ≈ 55KB guarantees the documents arm must drop items.
+    // Inserts are now error-checked too — a silently failed seed would produce the same symptom.
+    const seedTitlePad = 'x'.repeat(200)
+    const seedIds = Array.from({ length: 120 }, () => randomUUID())
+    const seedErrs = []
     for (const id of seedIds) {
-      await admin.from('documents').insert({ id, client_id: loopClientId, doc_type: 'other', title: `Synthetic seed doc ${id} for hosted truncation proof ${stamp}`, storage_path: `synthetic/${id}`, extracted_text: 'x', origin: 'draft', created_by: fullMachineId })
+      const { error: seedErr } = await admin.from('documents').insert({ id, client_id: loopClientId, doc_type: 'other', title: `Synthetic seed doc ${id} ${seedTitlePad} ${stamp}`, storage_path: `synthetic/${id}`, extracted_text: 'x', origin: 'draft', created_by: fullMachineId })
+      if (seedErr) seedErrs.push(seedErr.message)
     }
+    check('truncation fixture seeded without insert errors', seedErrs.length === 0, seedErrs[0])
     const cappedCall = await call(loopToken, rpcReq('tools/call', { name: 'client_360', arguments: { client: loopClientId } }))
     check('client_360 over-budget fixture -> still 200, not isError (structural cap, not a crash)', cappedCall.status === 200 && !cappedCall.json?.result?.isError)
     const cappedData = JSON.parse(cappedCall.json?.result?.content?.[0]?.text ?? '{}')
