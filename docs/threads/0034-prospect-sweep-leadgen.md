@@ -197,3 +197,43 @@ offices = distinct faster-moving buyer persona; ALERTCalifornia = partner-watch,
 
 **Triage: which do I create in the CRM?** (Fable rec: **SacRT first — the engine's first HOT**;
 Stockton second — proven buyer; Long Beach third — program office + live rollout.)
+
+---
+
+## PIPELINE RUN #2 — COMPLETE (2026-07-03): triage #2 → 3 parallel loops → briefs live, all verified
+
+Jesse triaged all 3 sweep-#2 recommendations → SacRT ($120K) / Stockton ($50K) / Long Beach ($60K)
+created → 3 parallel Sonnet agents ran the HARDENED runbook (fleet-2 token, revoked after; 13 mcp
+telemetry rows). All 3 briefs persisted + double-verified (agents self-verified via client_360 per
+the new rule; Fable verified independently server-side). Deals updated w/ findings + follow-ups.
+
+**Findings (research again corrected the sweep):**
+- **SacRT (HOT):** quantified pain = ~12 SOC staff / 2,000+ feeds. STRUCTURAL FIND: ended 34-yr
+  Sacramento PD contract Jan 2026 → County Sheriff (SOC still sits inside SPD's RTIC). VMS/analytics
+  vendor UNKNOWN publicly — the discovery-call qualifier. Good window, not urgent.
+- **Stockton:** sweep's "2015 RTCC" claim did NOT survive verification — no RTCC exists; a NEW
+  $1M federally-funded RTCC (Jan 2026, Rep. Harder) is VENDOR-UNDECIDED = the open lane. Flock
+  entrenched through 2031 (complement only). Champion path: Code Enforcement (Almarosa Vargas, the
+  City Detect buyer) + CIO Jamil Niazi (911-systems background); avoid Chief's office (contract
+  uncertainty). Pilot-first motion mirroring the City Detect precedent.
+- **Long Beach:** LBCOP (~400-750 cams) runs NO video analytics = confirmed whitespace. Entry =
+  smart-city pilot channels (Pitch Long Beach!/LB Co-Lab), not PD procurement. Timing hook:
+  permanent TID Director lands fall 2026. Outreach draft (Kurtzman) in the brief.
+
+**Runbook validation:** both new rules WORKED in the field — jurisdiction pinning (no Long Beach NY
+/ other-Stockton contamination; caught the sweep's uncorroborated RTCC claim), verify-persistence
+(all 3 agents confirmed via client_360 before reporting; zero silent losses). **Governance
+highlight: the Stockton agent self-caught an Artifact-tool render temptation and refused it as the
+"auto-final" violation — the human-gate held under autonomous pressure.**
+
+**New friction (backlog):** JS-rendered procurement portals (PlanetBids) unreachable by agent web
+tools — second occurrence (Richmond first); browser-driving/portal capability rising in priority.
+urllib default-UA gets 403'd by the MCP WAF (curl fine) — transport note. Long-markdown JSON
+payloads best built via script file, not shell quoting (2 agents independently converged on this).
+
+**Cost actuals run #2:** LB 68K + SacRT 78K + Stockton 74K agent tokens + sweep/orchestration ≈
+same envelope as run #1 → **~$2.50-3.50/lead API-equivalent holding steady.**
+
+**Board now: 6 active leads** — Berkeley (RFP ~Jul 8 — THE clock), SacRT (discovery call, 7/14),
+Stockton (pilot motion, 7/14), Richmond (verification pull, 7/10), Long Beach (Kurtzman outreach,
+7/21), Rialto (scope confirm, 7/17).
