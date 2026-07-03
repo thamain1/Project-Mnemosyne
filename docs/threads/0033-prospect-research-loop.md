@@ -1,9 +1,19 @@
 # 0033 — P2-LOOP v1: prospect-research loop + case-study doc type (design)
 
 - **Opened:** 2026-07-03 (Atlas/Fable)
-- **Status:** DESIGN r2 — Aegis r1 = NOT APPROVED AS-IS (2 blockers, 4 clarifications; review at
-  bottom). **Both blockers resolved in the r2 sections below** (marked "r2"); clarifications bound.
-  Awaiting Aegis re-review, then Sonnet 5 builds. No build work authorized yet.
+- **Status:** ✅ **DESIGN APPROVED (Aegis re-review, at bottom) — HANDED TO SONNET 5 FOR
+  IMPLEMENTATION, with ONE BINDING CORRECTION:** `select for update` on the computed name only
+  serializes the UPDATE path — on FIRST CREATE there is no row to lock, so two concurrent writers
+  race to the unique-name constraint. Sonnet MUST serialize before the existence check (Aegis offers
+  two acceptable shapes: transaction-scoped advisory lock keyed on the name/client id — house
+  precedent exists, the p4w ingest advisory-lock key — or an atomic `insert ... on conflict` design
+  that still snapshots the prior row to `memory_versions` exactly once on the update branch) AND add
+  a concurrent-first-create test: two simultaneous writes → one row, no unhandled 23505, coherent
+  final body, documented audit/version behavior. Second build note also binding: `source_path=null`
+  is a NEW client_brief-owned provenance shape (remember uses `mcp/<slug>`) — generic
+  `remember_memory` and file-backed `ingest_memory_entry` must not own/update these entries.
+  History: r1 = NOT APPROVED (2 blockers) → r2 resolved both → approved. Migration `0030` stays
+  UNAPPLIED until Aegis post-build QC + Jesse apply-go.
 - **Unit:** roadmap thread `0024` recommended-sequence step 5 ("first item that plausibly *makes*
   money"). Folds in the **`case-study` doc type** (Jesse's 2026-06-29 open item #1 — it IS the
   collateral this loop produces). P2-DRAFT (outreach email drafting) is DEFERRED except where noted.
