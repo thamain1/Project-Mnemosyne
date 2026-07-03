@@ -166,3 +166,34 @@ cheaper than Fable, dry-run-validated); sweep moves to Sonnet dispatch after ICP
 persisted Suggested Angle before ~Jul 8 RFP release (data-flow one-pager doubles as Surveillance
 Acquisition Report input); (2) Richmond verification pull (PlanetBids CompanyID 14590 + CPRC PDF)
 before any collateral; (3) Rialto = slow-play pending analytics-scope confirmation.
+
+---
+
+## SWEEP #2 EXECUTED — 2026-07-03 (Fable, live web): CA public-safety / smart-city (Jesse-directed widening)
+
+Same state, org-type aperture widened beyond sworn LE (transit, smart-city offices, emergency mgmt,
+airports, housing) — Segment B applied w/ the widened lens, noted per the runbook's widen-and-note
+rule. 7 search modalities, 13 scored, 0 collisions (4 CRM clients checked).
+**Result: 1 HOT / 5 WARM / 5 PARK / 2 DEAD** — artifact in brain:
+`prospect-sweep-intellioptics-ca-publicsafety-smartcity-2026-07-03`.
+
+**🔥 FIRST HOT OF THE ENGINE: Sacramento Regional Transit (SacRT)** — 2,000+ live monitored cameras,
+SOC hiring +2 staff, $1M FY2026 security increase approved, AI drone program launching 2026. Gate +
+3 signals under CURRENT rules (no ratification needed). The review-capacity pain at 10-20× small-PD
+scale, procured through a transit board (no Flock politics, no surveillance-ordinance gauntlet).
+
+**WARMs:** Stockton (proven AI-camera BUYER — City Detect $237K/yr post-pilot), Long Beach (smart-city
+office + speed-cam rollout), San Jose (AI traffic programs; crowded vendor field), Oakland (RTCC
+plans + 175 new cams; Flock incumbent — complement pitch, Rialto pattern), Sacramento Intl Airport
+(SMForward modernization).
+
+**Market findings:** transit = standout sub-vertical (estates dwarf PDs, monitoring staff = the
+pain, cleaner procurement); AB 645 speed-camera pilot = 6-city watchlist through 2032; smart-city
+offices = distinct faster-moving buyer persona; ALERTCalifornia = partner-watch, not prospect.
+
+**ICP maintenance queued:** transit/airport gate row (camera-count + SOC presence as fit predictors);
+"demonstrated AI-camera purchase" as 7th-signal candidate; +1-signal rule STILL pending ratification
+(would add Oakland to HOT).
+
+**Triage: which do I create in the CRM?** (Fable rec: **SacRT first — the engine's first HOT**;
+Stockton second — proven buyer; Long Beach third — program office + live rollout.)
