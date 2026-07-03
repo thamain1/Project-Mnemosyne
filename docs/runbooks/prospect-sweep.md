@@ -12,14 +12,21 @@ list** — names and evidence, nothing else. It is read-only against the CRM by 
    candidate-list memory + activity note (step 4). Clients are created by a human at triage; the
    research loop runs AFTER that, per its own runbook. (One writer shape per table; the sweep is not
    a writer.)
-2. **NO outreach of any kind** — not even "just a LinkedIn view." Names and public evidence only.
+2. **NO outreach of any kind.** Viewing PUBLIC sources (job listings, public company pages,
+   press) is the job; what's prohibited is any ENGAGEMENT or identifiable touch — no connection
+   requests, messages, follows, likes, or authenticated profile views that notify the target. Names
+   and public evidence only. (Clarified per Aegis editorial pass, 2026-07-03.)
 3. **Every signal needs a citation.** An uncited signal scores zero. The ICP's scoring shape
    requires a one-line source per fired signal.
-4. **Score against the committed ICP file, not vibes.** If a candidate feels right but fails the
-   gate, it goes in as PARK/DEAD with the reason — the miss is signal for the ICP's maintenance
-   section, not a rule to bend.
+4. **Score against the committed ICP file, not vibes.** Verdict rules, exact (Aegis editorial
+   pass, 2026-07-03): **any hard disqualifier = DEAD**; **gate fail without a disqualifier = PARK
+   (out-of-scope)** with the failed criterion named; **HOT/WARM require a full gate pass.** A
+   gate-fail that keeps feeling right is signal for the ICP's maintenance section, not a rule to
+   bend mid-sweep.
 5. **Check for collisions before scoring:** `client_360` each candidate name — if they're already a
-   CRM client or match an existing deal, mark them `EXISTING — see CRM` and do not re-score; the
+   CRM client or match an existing deal, record them under a separate `EXISTING — see CRM` list in
+   the artifact. `EXISTING` is a PRE-SCORE disposition, NOT a fifth verdict: existing matches are
+   never scored and are excluded from HOT/WARM counts (Aegis editorial pass, 2026-07-03). The
    stale-deal digest owns warm pipeline, not the sweep.
 
 ## The sweep
