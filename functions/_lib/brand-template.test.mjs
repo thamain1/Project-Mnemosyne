@@ -31,11 +31,19 @@ ck('resolveLogo leaves no local ref behind', !swapped.includes(LOGO_LOCAL_REF))
 ck('resolveLogo no-op when ref absent', resolveLogo('plain text') === 'plain text')
 ck('resolveLogo replaces every occurrence', (resolveLogo(`${LOGO_LOCAL_REF} ${LOGO_LOCAL_REF}`).match(/data:image\/png/g) || []).length === 2)
 
-// ── catalog integrity ──
-ck('catalog has 9 types', DOC_TYPE_CATALOG.length === 9)
+// ── catalog integrity (thread 0033: 9 → 11 with case-study + client-brief, allowedAudiences model) ──
+const PRE_0033_IDS = ['mou', 'sow', 'proposal', 'invoice', 'change-order', 'white-paper', 'use-case', 'capabilities-brief', 'exec-briefing']
+ck('catalog has 11 types', DOC_TYPE_CATALOG.length === 11)
 ck('all ids unique', new Set(DOC_TYPE_CATALOG.map((d) => d.id)).size === DOC_TYPE_CATALOG.length)
 ck('every category is contract|marketing', DOC_TYPE_CATALOG.every((d) => d.category === 'contract' || d.category === 'marketing'))
 ck('every entry has label + renderTitle + boolean generator', DOC_TYPE_CATALOG.every((d) => !!d.label && !!d.renderTitle && typeof d.hasGenerator === 'boolean'))
+ck('every entry has a non-empty allowedAudiences array', DOC_TYPE_CATALOG.every((d) => Array.isArray(d.allowedAudiences) && d.allowedAudiences.length > 0 && d.allowedAudiences.every((a) => a === 'client' || a === 'internal')))
+ck('all 9 pre-0033 types keep both audiences (byte-identical behavior)', PRE_0033_IDS.every((id) => {
+  const aud = docTypeById(id)?.allowedAudiences ?? []
+  return aud.length === 2 && aud.includes('client') && aud.includes('internal')
+}))
+ck('case-study is marketing w/ both audiences', docTypeById('case-study')?.category === 'marketing' && (docTypeById('case-study')?.allowedAudiences ?? []).sort().join(',') === 'client,internal')
+ck('client-brief is structurally internal-only', (docTypeById('client-brief')?.allowedAudiences ?? []).join(',') === 'internal')
 ck('mou + sow are the generators today', DOC_TYPE_CATALOG.filter((d) => d.hasGenerator).map((d) => d.id).sort().join(',') === 'mou,sow')
 ck('mou is contract w/ generator', docTypeById('mou')?.category === 'contract' && docTypeById('mou')?.hasGenerator === true)
 ck('white-paper is marketing, no generator yet', docTypeById('white-paper')?.category === 'marketing' && docTypeById('white-paper')?.hasGenerator === false)
