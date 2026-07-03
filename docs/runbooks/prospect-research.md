@@ -47,6 +47,9 @@ Before researching anything, pull what the brain already knows:
 This is agent-side work — use your own web research tools (Mnemosyne is not a crawler and has no
 scraping infrastructure in this unit). Cover, at minimum:
 
+- **Jurisdiction/name pinning first** (2026-07-03, Richmond run: Richmond VA and Richmond BC
+  polluted results and nearly injected the wrong chief): for common city/company names, pin EVERY
+  source to the target jurisdiction (state, council names, known facts) before using it.
 - **Company**: what they do, size, industry, recent news/funding.
 - **People**: decision-makers relevant to a 4ward engagement — name, role, background.
 - **Signals — why now**: anything suggesting this is a good moment to reach out (a hire, a launch, a
@@ -77,7 +80,10 @@ client_brief({
   do not proceed to step 4 without a linked client (there'd be nothing to attach the deal/collateral
   to later).
 - On success, the brief is immediately visible in `client_360`, in `recall` with a `client_id` filter,
-  and as a bridge edge in the Memories graph.
+  and as a bridge edge in the Memories graph. **Verify persistence before reporting** (2026-07-03,
+  Richmond run: a session interruption between compose and persist silently lost the first write):
+  call `client_360` after `client_brief` and confirm the brief appears in the memories arm — report
+  the verified state, not the attempted call.
 
 ### 4. DRAFT
 

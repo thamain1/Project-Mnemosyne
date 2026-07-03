@@ -120,3 +120,49 @@ real 0033 run) awaits Jesse's triage.
 **Triage: which do I create in the CRM?** (Fable's recommendation: Richmond PD first — live RFP;
 Rialto second — freshest money; Berkeley third — biggest budget, needs the source-conflict resolved
 by the research loop.)
+
+---
+
+## FIRST FULL PIPELINE RUN — COMPLETE (2026-07-03): triage → 3 parallel research loops → briefs live
+
+Jesse triaged all 3 recommendations → clients+deals created (Richmond $75K / Rialto $60K / Berkeley
+$120K, all lead) → 3 parallel Sonnet agents ran the 0033 runbook w/ LIVE web research over the
+hosted MCP (1-day `fable-research-fleet` token, revoked after). All 3 briefs persisted, verified
+server-side (linked to client+deal, null provenance, audit actor=fleet, 15 mcp telemetry rows).
+Acceptance criterion 3 of this thread = MET. Deal next_action/follow_up/notes updated from findings.
+
+**Research outcomes (each corrected the sweep materially — the loop earns its keep):**
+- **Berkeley — UPGRADED, hottest lead.** Source conflict RESOLVED: council rejected Flock $2M 8-1
+  (May), authorized $2.4M/4yr SIX-LOT COMPETITIVE RFP on Jul 1 — release ~Jul 8, bids ~Aug 7. PAB
+  formally objected to single-vendor bundling (= camera-agnostic spec). Lots 5+6 fit. ~5-week runway.
+- **Richmond — reshaped.** Sweep's "live RFP" timing was stale: RFP likely issued ~Feb, possibly at
+  Phase II (Flock vs Utility Associates — UNVERIFIED, needs PlanetBids pull + CPRC PDF parse, THE
+  this-week action). Real gate = Dec 31, 2026 contract sunset/council re-eval. Political fuel
+  strong (sanctuary-city data leak, Hofer litigation threat, new Chief Simmons shut Flock himself).
+- **Rialto — qualified honestly.** NOT greenfield: Axon $14.3M/9yr (Nov 2025) incl. Fusus is the
+  incumbent-in-motion; 113-cam buy is a Convergint integrator install w/ unconfirmed analytics
+  scope. Pitch = investigator-capacity complement layer, never platform replacement.
+
+**Runbook hardening from field feedback (applied):** verify-persistence-before-reporting step
+(Richmond lost its first write to a session interruption — the create-then-version design made
+retry trivial, now the check is codified); jurisdiction-pinning rule (Richmond VA/BC pollution).
+Sweep-signal lesson recorded: date-check hiring signals (Rialto's was stale 2024); add
+incumbent-vendor-overlap check to step 2 (Rialto's Axon find outweighed the original signal).
+Noted for infra backlog: municipal targets live in PDFs — a pdftotext/poppler capability on the
+research box would close the biggest evidence gap (Richmond's Phase-II question).
+
+**Cost per lead (Jesse-requested; Teams seat $150/mo reference):** measured agent tokens — dry-run
+50K, Berkeley 74K, Rialto 80K, Richmond ~94K reported on the resumed leg (+ unreported first leg,
+~150K est. total incl. the rate-limit loss). API-equivalent for the full pipeline (Fable sweep
+~$2.50-4 + 3 Sonnet loops ~$2.50-4.50 + Fable orchestration ~$1.50-2.50 + infra <$0.05) ≈
+**$7-11 total → ~$2.50-3.50 per researched CRM-linked lead** (~$0.50 per scored candidate).
+Plan-share: marginal $0 on the seat; dedicated-seat fully-loaded ≈ $7.50-10/lead; the binding
+constraint is seat capacity (Richmond hit the session rate limit mid-run — the practical ceiling
+signal). Market comparison: agency qualified-lead pricing $50-300, SDR fully-loaded >$100/lead →
+**10-30× cheaper at worst-case framing**. Cost optimizations queued: research stays Sonnet (~5×
+cheaper than Fable, dry-run-validated); sweep moves to Sonnet dispatch after ICP tunes (2-3 sweeps).
+
+**Next actions (Jesse):** (1) Berkeley is the clock — render the capabilities-brief from the
+persisted Suggested Angle before ~Jul 8 RFP release (data-flow one-pager doubles as Surveillance
+Acquisition Report input); (2) Richmond verification pull (PlanetBids CompanyID 14590 + CPRC PDF)
+before any collateral; (3) Rialto = slow-play pending analytics-scope confirmation.
