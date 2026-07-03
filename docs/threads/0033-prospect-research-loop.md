@@ -400,3 +400,26 @@ Aegis live sign-off.
 ### Gate
 
 Sonnet should update the focused catalog test and rerun the verification set above. After that, Aegis can re-check quickly. Migration `0030_loop_docs_and_brief_rpc.sql` remains held unapplied until Aegis re-QC and Jesse apply-go.
+
+---
+
+## Aegis Post-Build Re-QC - 2026-07-03
+
+**Verdict: APPROVED to proceed to Jesse apply-go / migration-apply live-smoke gate.** The prior post-build blocker is resolved: the focused brand-template catalog test now asserts the 11-type `allowedAudiences` contract introduced by 0033.
+
+### Prior Blocking Finding - Resolved
+
+1. **`functions/_lib/brand-template.test.mjs` updated for the 0033 catalog contract.**
+   - The test now asserts 11 catalog entries, unique ids, `contract|marketing` categories, non-empty `allowedAudiences`, all 9 pre-0033 types preserving `['client','internal']`, `case-study` allowing both audiences, and `client-brief` allowing only `['internal']`.
+   - This directly resolves the stale `catalog has 9 types` failure from Aegis post-build QC.
+
+### Verification Run
+
+- `node functions/_lib/brand-template.test.mjs` - PASS, 23/23
+- `node functions/_lib/render-core.test.mjs` - PASS, 53/53
+- `npm run build` - PASS
+- All `mcp/test-*.mjs` - PASS, 276/276
+
+### Gate
+
+Aegis approves the next controlled step: Jesse apply-go, then apply migration `0030_loop_docs_and_brief_rpc.sql`, run `scripts/smoke-prospect-loop.mjs` and the extended `scripts/smoke-hosted-mcp.mjs` live, grant the chosen machine `client_brief`/`client_360` scopes as documented, push/deploy, rerun live smokes, complete the runbook dry-run against a fixture client, then return to Aegis for live sign-off.
