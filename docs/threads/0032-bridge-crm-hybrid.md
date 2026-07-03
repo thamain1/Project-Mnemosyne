@@ -530,3 +530,14 @@ Aegis approves moving to the next controlled step: apply migration 0027, run `sc
 **Remaining for final close:** UI-rider visual acceptance (screenshot/video of the animated node
 cloud + bridge edges + vitals strip — needs a human browser session) → Aegis live sign-off over this
 record.
+
+### UI-rider visual acceptance — 2026-07-03 (Jesse, in-browser)
+
+Two rounds of fixes from Jesse's screenshots (`docs/header.png`, `docs/current.png`):
+`51027c6` (vitals to own rail — inline placement wrapped name/signout/stat labels at max-w-5xl;
+bounded graph physics — cooldownTime Infinity spread nodes past the one-time zoomToFit) and
+`719f7c4` (weak center gravity — unlinked singletons repelled to frame edges inflated the fit
+bounding box, rendering the connected core tiny). **Jesse accepted the result in-browser
+("that looks fine for now").** Rider status: ACCEPTED for this unit; further polish belongs to the
+deferred Mission-Control unit. **0032 now awaits ONLY Aegis live sign-off over the full gate
+record above.**
