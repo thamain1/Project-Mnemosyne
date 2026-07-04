@@ -615,8 +615,11 @@ async function main() {
     check('remember out-of-scope -> 403', outOfScopeRemember.status === 403)
 
     // ---- cleanup: fixture secrets, fixture memory entry, fixture machines ----
-    await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: teamSecretId }).catch(() => {})
-    await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: adminSecretId }).catch(() => {})
+    // NB: admin.rpc() returns a lazy PostgrestFilterBuilder (thenable, no .catch method) — it must be
+    // awaited/try-caught, not chained with .catch() directly (that throws synchronously, before the
+    // request is even sent, orphaning the fixture).
+    try { await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: teamSecretId }) } catch { /* best-effort */ }
+    try { await admin.rpc('retire_secret', { p_actor: adminMachineId, p_id: adminSecretId }) } catch { /* best-effort */ }
     const { data: memRow } = await admin.from('memory_entries').select('id').eq('name', rememberName).maybeSingle()
     if (memRow) {
       await admin.from('memory_chunks').delete().eq('memory_entry_id', memRow.id)
