@@ -2,7 +2,7 @@ import { type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthProvider'
 import VitalsStrip from './VitalsStrip'
 
-export type Tab = 'memories' | 'documents' | 'generate' | 'create' | 'crm' | 'activity' | 'team'
+export type Tab = 'memories' | 'documents' | 'generate' | 'create' | 'crm' | 'activity' | 'agentos' | 'team'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'memories', label: 'Memories' },
@@ -11,6 +11,9 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'create', label: 'Create' },
   { id: 'crm', label: 'CRM' },
   { id: 'activity', label: 'Activity' },
+  // Agent OS between Activity and Team (WORK-ORDER-AGENT-OS-UI.md): it reads as "what the
+  // machines did" next to "what the humans did" — the two audit-flavored surfaces adjacent.
+  { id: 'agentos', label: 'Agent OS' },
   { id: 'team', label: 'Team' },
 ]
 

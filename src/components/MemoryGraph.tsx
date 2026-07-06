@@ -27,6 +27,8 @@ const KIND_NODE: Record<string, string> = {
 const HUB_COLOR = '#64748b'      // slate-500
 const CLIENT_COLOR = '#f472b6'   // pink-400 — bridge target: CRM client
 const DEAL_COLOR = '#fb923c'     // orange-400 — bridge target: CRM deal
+const AGENT_COLOR = '#22d3ee'    // cyan-400 — agent-learned memory (client:* tag, Agent OS era):
+                                 // "the brain is learning from the field" gets its own color
 const LINK_COLOR: Record<string, string> = {
   hub: 'rgba(100,116,139,0.25)',      // entry → its cluster hub (faint slate)
   link: 'rgba(96,165,250,0.45)',      // [[links]] between entries (blue)
@@ -75,7 +77,8 @@ export default function MemoryGraph({
       const key = entryGroupKey(r)
       addHub(key)
       const snippet = (r.tags ?? []).includes('code-snippet')
-      nodes.push({ id: r.name, label: r.title || r.name, kind: r.kind, snippet, color: KIND_NODE[r.kind] ?? '#94a3b8' })
+      const agentSourced = (r.tags ?? []).some((t) => t.startsWith('client:'))
+      nodes.push({ id: r.name, label: r.title || r.name, kind: r.kind, snippet, color: agentSourced ? AGENT_COLOR : (KIND_NODE[r.kind] ?? '#94a3b8') })
       links.push({ source: r.name, target: `hub:${key}`, kind: 'hub' })
       if (r.client_id) {
         const cid = `client:${r.client_id}`
@@ -171,7 +174,17 @@ export default function MemoryGraph({
         onNodeHover={(n: any) => setHoverId(n ? n.id : null)}
         onNodeClick={(n: any) => { focusNode(n); if (!n.isHub) onOpen(n.id) }}
         nodeCanvasObject={(n: any, ctx: CanvasRenderingContext2D, scale: number) => {
-          const r = n.isHub ? 5.5 : 3.5
+          // "Alive at rest" breathing (WORK-ORDER-AGENT-OS-UI.md Part 2): a RENDER-layer micro-
+          // oscillation — the physics stays settled (the 0032 bounded-cooldown fix is untouched;
+          // n.x/n.y never move), only the drawn radius and a soft glow pulse on a slow per-node
+          // phase. Visual-only, so click targets (nodePointerAreaPaint) stay exactly where the
+          // node is, and zoomToFit's frame never re-inflates.
+          const phase = (n.__phase ??= Math.random() * Math.PI * 2)
+          const breathe = 1 + 0.10 * Math.sin(Date.now() / 1400 + phase)
+          const r = (n.isHub ? 5.5 : 3.5) * breathe
+          const glow = 0.18 + 0.10 * Math.sin(Date.now() / 1400 + phase)
+          ctx.beginPath(); ctx.arc(n.x, n.y, r + 2.2, 0, 2 * Math.PI)
+          ctx.fillStyle = hexToRgba(n.color, glow); ctx.fill()
           ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI)
           ctx.fillStyle = n.color; ctx.fill()
           if (n.snippet) { ctx.strokeStyle = '#6ee7b7'; ctx.lineWidth = 1.2; ctx.stroke() }
@@ -194,6 +207,7 @@ export default function MemoryGraph({
         <span className="flex items-center gap-1"><Dot c="#fbbf24" /> feedback</span>
         <span className="flex items-center gap-1"><Dot c="#a78bfa" /> user</span>
         <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-full border border-emerald-300" /> code snippet</span>
+        <span className="flex items-center gap-1"><Dot c={AGENT_COLOR} /> agent-learned</span>
         {hasBridge && <span className="flex items-center gap-1"><Dot c={CLIENT_COLOR} /> CRM client</span>}
         {hasBridge && <span className="flex items-center gap-1"><Dot c={DEAL_COLOR} /> CRM deal</span>}
         <span className="ml-auto">click a node to open + zoom · hover to trace links · scroll to zoom · drag to pan</span>
@@ -204,4 +218,12 @@ export default function MemoryGraph({
 
 function Dot({ c }: { c: string }) {
   return <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c }} />
+}
+
+// Breathing-glow helper: node colors are hex (#rrggbb) — soft halo needs them at low alpha.
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return `rgba(148,163,184,${alpha})`
+  const v = parseInt(m[1], 16)
+  return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${alpha})`
 }

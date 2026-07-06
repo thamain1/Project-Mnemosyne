@@ -9,6 +9,7 @@ import Generate from './pages/Generate'
 import Create from './pages/Create'
 import CRM from './pages/CRM'
 import Activity from './pages/Activity'
+import AgentOS from './pages/AgentOS'
 import Team from './pages/Team'
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
       {tab === 'create' && <Create />}
       {tab === 'crm' && <CRM />}
       {tab === 'activity' && <Activity />}
+      {tab === 'agentos' && <AgentOS />}
       {tab === 'team' && <Team />}
     </AppShell>
   )
