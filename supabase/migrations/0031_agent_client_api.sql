@@ -127,7 +127,10 @@ begin
   v_activity_id := public.log_activity(p_actor, p_action, v_entity_type, v_entity_id, p_detail);
 
   if p_memory is not null then
-    if exists (select 1 from jsonb_object_keys(p_memory) k where k not in ('name','kind','title','body','tags')) then
+    -- 'embedding' belongs in the allowlist: lines below REQUIRE it as a non-null string, so
+    -- omitting it here made every memory write impossible (allowlist rejected the key, or the
+    -- embedding check rejected its absence). Caught in Atlas's pre-apply review, 2026-07-06.
+    if exists (select 1 from jsonb_object_keys(p_memory) k where k not in ('name','kind','title','body','tags','embedding')) then
       raise exception 'record_agent_outcome: unexpected key in memory payload';
     end if;
     v_name := p_memory->>'name';
