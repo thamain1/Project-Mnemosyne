@@ -93,7 +93,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'recall',
     scope: 'recall',
-    description: 'Hybrid (vector + full-text) recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, similarity, source path, last-updated freshness, and which search arm(s) matched. Read-only.',
+    description: 'Hybrid (vector + full-text) recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, fused rank score, true vector similarity when available, source path, last-updated freshness, and which search arm(s) matched. Read-only.',
     inputSchema: {
       type: 'object', additionalProperties: false,
       properties: {

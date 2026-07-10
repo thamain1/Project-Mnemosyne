@@ -62,7 +62,7 @@ const vecLit = (v) => `[${v.join(',')}]`
 let memberUid, nonmemberUid
 let clientId, dealId, contactId
 let staleDealId
-let memName, memId
+let memName, memId, fixtureEmbeddingValues, ftsOnlyName
 
 const UNIQUE_TOKEN = `smoke0032xyz${stamp}`
 
@@ -80,6 +80,7 @@ async function setup() {
 async function cleanup() {
   try {
     if (memId) { await admin.from('memory_chunks').delete().eq('memory_entry_id', memId); await admin.from('memory_versions').delete().eq('entry_id', memId); await admin.from('activity_log').delete().eq('entity_id', memId); await admin.from('memory_entries').delete().eq('id', memId) }
+    if (ftsOnlyName) await admin.from('memory_entries').delete().eq('name', ftsOnlyName)
     if (contactId) { await admin.from('activity_log').delete().eq('entity_id', contactId); await admin.from('contacts').delete().eq('id', contactId) }
     if (dealId) { await admin.from('activity_log').delete().eq('entity_id', dealId); await admin.from('deals').delete().eq('id', dealId) }
     if (staleDealId) { await admin.from('activity_log').delete().eq('entity_id', staleDealId); await admin.from('deals').delete().eq('id', staleDealId) }
@@ -152,7 +153,8 @@ async function main() {
   // ingest a fixture memory entry directly (DB-ONLY: ingest_memory_entry is service-role-only, no
   // endpoint exposes it — random unit vector avoids needing GEMINI_API_KEY for a smoke script)
   memName = `smoke-0032-bridge-${stamp}`
-  const vec1 = vecLit(randomUnitVector(768))
+  fixtureEmbeddingValues = randomUnitVector(768)
+  const vec1 = vecLit(fixtureEmbeddingValues)
   const bridgeBody = `# Overview\nThis is the ${UNIQUE_TOKEN} fixture entry.\n\n## Scope\nscope section body, line one.\nline two.\n\n### Scope details\na nested sub-heading.\n\n## Timeline\ntimeline section body.\n`
   const ingestRes = await admin.rpc('ingest_memory_entry', {
     payload: { name: memName, kind: 'reference', title: `Smoke 0032 bridge fixture ${stamp}`, body: bridgeBody, links: [], source_path: `memory/${memName}.md`, embedding_model: 'gemini-embedding-001', embedding: vec1, chunks: [], client_id: clientId, deal_id: dealId },
@@ -319,9 +321,25 @@ async function main() {
     const randomEmbedding = vecLit(randomUnitVector(768))
     const ftsRes = await admin.rpc('recall_memory_hybrid', { p_query: UNIQUE_TOKEN, p_embedding: randomEmbedding, p_match_count: 10 })
     check('recall_memory_hybrid executes', !ftsRes.error, ftsRes.error?.message)
-    const ftsHit = (ftsRes.data ?? []).find((r) => r.name === memName)
-    check('exact-token query ranks the fixture entry (FTS arm) despite a random embedding', !!ftsHit, JSON.stringify((ftsRes.data ?? []).map((r) => r.name)))
-    check('matched_via reflects the fts/both arm for the exact-token hit', ftsHit && (ftsHit.matched_via === 'fts' || ftsHit.matched_via === 'both'), ftsHit?.matched_via)
+    const ftsRows = ftsRes.data ?? []
+    const ftsHit = ftsRows.find((r) => r.name === memName)
+    check('recall_memory_hybrid exposes score + similarity columns', ftsRows.every((r) => 'score' in r && 'similarity' in r), JSON.stringify(ftsRows[0]))
+    check('recall_memory_hybrid returns rows ordered by score desc', ftsRows.every((r, i, a) => i === 0 || Number(a[i - 1].score) >= Number(r.score)), JSON.stringify(ftsRows.map((r) => r.score)))
+    check('exact-token query ranks the fixture entry (FTS arm) despite a random embedding', !!ftsHit, JSON.stringify(ftsRows.map((r) => r.name)))
+    check('embedded exact-token hit is marked fts/both under current full-vector-scan semantics', ftsHit && (ftsHit.matched_via === 'fts' || ftsHit.matched_via === 'both'), ftsHit?.matched_via)
+
+    const vectorRes = await admin.rpc('recall_memory_hybrid', { p_query: `no-fts-hit-${stamp}`, p_embedding: vecLit(fixtureEmbeddingValues), p_match_count: 10 })
+    const vectorHit = (vectorRes.data ?? []).find((r) => r.name === memName)
+    check('pure-vector query returns fixture row', !vectorRes.error && !!vectorHit, vectorRes.error?.message ?? JSON.stringify((vectorRes.data ?? []).map((r) => r.name)))
+    check('pure-vector query similarity is true cosine ~= 1.0 for identical embedding', vectorHit && vectorHit.similarity > 0 && vectorHit.similarity <= 1.000001 && Math.abs(vectorHit.similarity - 1) < 1e-6, JSON.stringify(vectorHit))
+
+    ftsOnlyName = `smoke-0032-fts-only-${stamp}`
+    const ftsOnlyInsert = await admin.from('memory_entries').insert({ name: ftsOnlyName, kind: 'reference', title: 'FTS only fixture', body: `This row has ${UNIQUE_TOKEN} but intentionally no embedding.`, links: [], source_path: `memory/${ftsOnlyName}.md` }).select('id').maybeSingle()
+    check('seed fts-only no-embedding memory row', !ftsOnlyInsert.error, ftsOnlyInsert.error?.message)
+    const ftsOnlyRes = await admin.rpc('recall_memory_hybrid', { p_query: UNIQUE_TOKEN, p_embedding: randomEmbedding, p_match_count: 20 })
+    const ftsOnlyHit = (ftsOnlyRes.data ?? []).find((r) => r.name === ftsOnlyName)
+    check('fts-only no-embedding row returns matched_via=fts', ftsOnlyHit?.matched_via === 'fts', JSON.stringify(ftsOnlyHit))
+    check('fts-only no-embedding row returns similarity null', ftsOnlyHit && ftsOnlyHit.similarity === null, JSON.stringify(ftsOnlyHit))
 
     // filters: client_id filter should include the fixture (linked) and NOT an unrelated entry
     const unrelatedName = `smoke-0032-unrelated-${stamp}`

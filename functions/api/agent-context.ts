@@ -55,13 +55,11 @@ export const onRequestPost = async (context: any): Promise<Response> => {
   // ---- lookup: client-scoped AND (this customer OR any of these techs) ----
   const customerTag = `isb-customer:${customerId}`
   const wantedTags = [customerTag, ...techIds.map((t) => `isb-tech:${t}`)]
-  const { data: rows, error } = await admin
-    .from('memory_entries')
-    .select('body, tags, updated_at')
-    .contains('tags', [`client:${clientSlug}`])
-    .overlaps('tags', wantedTags)
-    .order('updated_at', { ascending: false })
-    .limit(MAX_ROWS)
+  const { data: rows, error } = await admin.rpc('get_agent_client_context', {
+    p_client_slug: clientSlug,
+    p_wanted_tags: wantedTags,
+    p_limit: MAX_ROWS,
+  })
   if (error) return json({ error: 'lookup failed' }, 502)
 
   const found = rows ?? []

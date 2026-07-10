@@ -89,10 +89,19 @@ export function makeEmbedQuery({ apiKey, fetchImpl = fetch, sleepImpl = (ms) => 
   }
 }
 
+const fmtNum = (value, digits) => {
+  if (value === null || value === undefined) return 'n/a'
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(digits) : 'n/a'
+}
+
 export function formatResults(query, rows) {
   if (!rows?.length) return `No matches for: ${query}`
-  const lines = rows.map((r, i) =>
-    `${i + 1}. [${Number(r.similarity).toFixed(3)}] ${r.name} (${r.kind}) — ${r.title}\n   source: ${r.source_path} · updated: ${r.updated_at} · via: ${r.matched_via}`)
+  const lines = rows.map((r, i) => {
+    const score = r.score === undefined ? 'n/a' : fmtNum(r.score, 3)
+    const sim = fmtNum(r.similarity, 2)
+    return `${i + 1}. [score ${score} · sim ${sim}] ${r.name} (${r.kind}) — ${r.title}\n   source: ${r.source_path} · updated: ${r.updated_at} · via: ${r.matched_via}`
+  })
   return `Top ${rows.length} for "${query}":\n\n${lines.join('\n')}`
 }
 

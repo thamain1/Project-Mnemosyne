@@ -37,7 +37,7 @@ const OPERATOR_ID = process.env.OPERATOR_MEMBER_ID
 
 const RECALL_TOOL = {
   name: 'recall',
-  description: 'Semantic recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, similarity, source path, and last-updated freshness. Read-only.',
+  description: 'Semantic recall over the 4ward shared brain (memory entries + chunks). Returns the most relevant memories with name, title, fused rank score, true vector similarity when available, source path, and last-updated freshness. Read-only.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,

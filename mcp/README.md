@@ -10,7 +10,7 @@ recall/update institutional memory on demand instead of reading local files. **F
 
 ## Tool
 - **`recall(query, k=8)`** — embeds the query (`gemini-embedding-001`, `RETRIEVAL_QUERY`, 768, normalized),
-  calls the read-only `recall_memory` RPC, returns top-k memories with name, title, similarity, source
+  calls the read-only `recall_memory` RPC, returns top-k memories with name, title, fused rank score, true vector similarity when available, source
   path, last-updated freshness, and whether the match was entry- or chunk-level.
 
 ## Run (after sign-off + `0008` applied)

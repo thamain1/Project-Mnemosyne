@@ -19,9 +19,11 @@ const CTX_URL = `${BASE}/api/agent-context`
 const OUT_URL = `${BASE}/api/agent-outcome`
 const URL = process.env.VITE_SUPABASE_URL
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
-if (!URL || !SERVICE) { console.error('missing env (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)'); process.exit(1) }
+const PUB = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+if (!URL || !SERVICE || !PUB) { console.error('missing env (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / PUBLISHABLE)'); process.exit(1) }
 
 const admin = createClient(URL, SERVICE, { auth: { persistSession: false, autoRefreshToken: false } })
+const anonClient = createClient(URL, PUB, { auth: { persistSession: false, autoRefreshToken: false } })
 const stamp = process.env.SMOKE_STAMP || String(Date.now())
 const SYSTEM_ACTOR_ID = '1788c353-8921-418b-9db4-fa8ca388c1b0'
 
@@ -40,6 +42,17 @@ async function createAgentClient(slug, displayName, { active = true } = {}) {
   return token
 }
 
+async function createAuthenticatedRpcClient() {
+  const created = await admin.auth.admin.createUser({ email: authEmail, password: authPassword, email_confirm: true })
+  if (created.error) throw new Error(`create authenticated rpc user: ${created.error.message}`)
+  authUid = created.data.user.id
+  const authClient = createClient(URL, PUB, { auth: { persistSession: false, autoRefreshToken: false } })
+  const signed = await authClient.auth.signInWithPassword({ email: authEmail, password: authPassword })
+  if (signed.error || !signed.data?.session?.access_token) throw new Error(`sign in authenticated rpc user: ${signed.error?.message}`)
+  return createClient(URL, PUB, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { authorization: `Bearer ${signed.data.session.access_token}` } } })
+}
+
+const denied = (res) => !!res.error && (res.error.code === '42501' || /permission denied/i.test(res.error.message ?? ''))
 async function call(url, token, body) {
   const headers = { 'content-type': 'application/json' }
   if (token !== null) headers.authorization = `Bearer ${token}`
@@ -56,7 +69,10 @@ const slugC = `smoke-agent-c-${stamp}` // deactivated
 const slugD = `smoke-agent-d-${stamp}` // never gets any memories — null-context case
 const customerId = randomUUID()
 const techId = randomUUID()
-const otherCustomerId = randomUUID() // used only in client B's leakage-bait memory
+const otherCustomerId = randomUUID() // used only in client B's SQL-layer leakage-bait memory
+const authEmail = `smoke-agent-auth-${stamp}@mnemosyne.test`
+const authPassword = 'Smoke!' + Math.abs(URL.length * 7919).toString(36) + 'xZ9'
+let authUid
 
 async function memoryCountFor(slug) {
   const { count, error } = await admin.from('memory_entries').select('id', { count: 'exact', head: true }).contains('tags', [`client:${slug}`])
@@ -73,6 +89,7 @@ async function cleanup() {
     `agent_context:${slugC}`, `agent_context:${slugD}`,
   ])
   await admin.from('agent_clients').delete().in('client_slug', [slugA, slugB, slugC, slugD])
+  if (authUid) await admin.auth.admin.deleteUser(authUid)
 }
 
 async function main() {
@@ -80,6 +97,7 @@ async function main() {
   const tokenB = await createAgentClient(slugB, `Smoke test B ${stamp}`)
   const tokenC = await createAgentClient(slugC, `Smoke test C (deactivated) ${stamp}`, { active: false })
   const tokenD = await createAgentClient(slugD, `Smoke test D (no memories) ${stamp}`)
+  const authenticatedRpcClient = await createAuthenticatedRpcClient()
 
   // ── auth negatives (both endpoints, fail-closed, identical shape) ──────────────────────────────
   { const r = await call(CTX_URL, null, { customer_id: customerId, tech_ids: [] }); check('agent-context: missing bearer -> 401', r.status === 401) }
@@ -155,6 +173,23 @@ async function main() {
   const rctxB = await call(CTX_URL, tokenB, { customer_id: customerId, tech_ids: [] })
   check('agent-context: client B sees its OWN memory', (rctxB.json?.context ?? '').includes('CLIENT-B-ONLY-SECRET-MARKER'))
   check('LEAKAGE NEGATIVE (reverse): client B context never contains client A content', !(rctxB.json?.context ?? '').includes('gate code 4471'))
+
+  const rbSqlOnly = await call(OUT_URL, tokenB, {
+    event_type: 'note', customer_id: otherCustomerId, customer_name: 'SQL Backstop Bait Co',
+    summary: 'CLIENT-B-SQL-LAYER-ONLY-MARKER should never appear for client A at the RPC layer.',
+  })
+  check('agent-outcome: client B SQL-layer bait seed -> 200 ok', rbSqlOnly.status === 200 && rbSqlOnly.json?.ok === true, JSON.stringify(rbSqlOnly.json))
+
+  const sqlCrossA = await admin.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [`isb-customer:${otherCustomerId}`], p_limit: 20 })
+  check('SQL BACKSTOP: client A slug + client B-only customer tag -> 0 rows', !sqlCrossA.error && (sqlCrossA.data ?? []).length === 0, sqlCrossA.error?.message ?? JSON.stringify(sqlCrossA.data))
+
+  const sqlCrossB = await admin.rpc('get_agent_client_context', { p_client_slug: slugB, p_wanted_tags: [`isb-tech:${techId}`], p_limit: 20 })
+  check('SQL BACKSTOP (reverse): client B slug + client A-only tech tag -> 0 rows', !sqlCrossB.error && (sqlCrossB.data ?? []).length === 0, sqlCrossB.error?.message ?? JSON.stringify(sqlCrossB.data))
+
+  const anonRpc = await anonClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [customerTag], p_limit: 20 })
+  check('get_agent_client_context direct execute as anon -> denied 42501', denied(anonRpc), anonRpc.error?.code ?? anonRpc.error?.message)
+  const authRpc = await authenticatedRpcClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [customerTag], p_limit: 20 })
+  check('get_agent_client_context direct execute as authenticated -> denied 42501', denied(authRpc), authRpc.error?.code ?? authRpc.error?.message)
 
   // ── rate limit trip (prove once per endpoint) — preset the bucket to empty rather than firing
   //    60-120 real requests; rate_take's own atomicity is already covered by migration 0023's design ──

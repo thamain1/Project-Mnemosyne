@@ -283,3 +283,44 @@ unverified are marked.
   servers, hook pipelines) combines hybrid recall + versioning + vault governance + scoped machine
   tokens + audit the way Mnemosyne does; mem0's dedicated MCP server shows modest adoption
   (unverified star count). Build-on, don't migrate.
+
+---
+
+## Aegis Unit S Build Report - 2026-07-10
+
+**Status: BUILD COMPLETE / HELD UNAPPLIED / NOT PUSHED.** Aegis implemented Unit S per `docs/WORK-ORDER-0037-UNIT-S.md` for Atlas/Fable QC. Migration `0033_sec_hardening.sql` is written but unapplied. Caller code is present in the local worktree/commit only and must not be pushed until Jesse apply-go + migration apply.
+
+### Built
+
+- Added migration `supabase/migrations/0033_sec_hardening.sql`:
+  - `get_agent_client_context(p_client_slug, p_wanted_tags, p_limit)` service-role-only SECURITY DEFINER RPC with empty `search_path`, input validation, active `agent_clients` assertion, and SQL-level `client:<slug>` tenant backstop.
+  - Dropped/recreated `recall_memory_hybrid(...)` to split `score` (fused RRF x recency sort key) from `similarity` (true best vector cosine, null for fts-only rows), preserving 0029's `#variable_conflict use_column`, casts, scoped-filter CTE, and `OPERATOR(public.<=>)` usage.
+- Switched `functions/api/agent-context.ts` from app-side `.contains().overlaps()` reads to the new RPC while preserving response composition.
+- Updated recall formatting/descriptions so agents see `[score N.NNN - sim N.NN|n/a]` instead of a mislabeled fused score.
+- Extended keyless recall tests and live smoke scripts for the new SQL backstop and honest recall fields.
+
+### Spec Discrepancy Recorded
+
+The work order's S3 smoke line says the existing `UNIQUE_TOKEN + random embedding` trick should produce an fts-only match. Against the current 0029 SQL, that is not true for embedded memories: the vector arm scans every embedded row, so an exact-token embedded row is usually `matched_via='both'`, not `fts`. Aegis preserved the acceptance intent by adding an explicit no-embedding memory fixture in `scripts/smoke-bridge-crm-hybrid.mjs`; that fixture proves `matched_via='fts'` and `similarity === null` without changing recall behavior.
+
+### Verification Run
+
+- `node --check mcp/test-recall.mjs` - PASS
+- `node --check scripts/smoke-agent-api.mjs` - PASS
+- `node --check scripts/smoke-bridge-crm-hybrid.mjs` - PASS
+- `node mcp/test-recall.mjs` - PASS, 44/44
+- Full keyless MCP suite - PASS: fetch 75/75, getsecret 17/17, log 34/34, recall 44/44, remember 60/60, update 42/42, usage 5/5
+- `npm run build` - PASS
+- `git diff --check` - PASS
+
+### Not Run / Still Gated
+
+- Migration `0033` not applied.
+- Live smokes not run.
+- S1 service-role key rotation not verified.
+- Post-apply ACL/proacl gate not run.
+- Hosted brain `log_update work.commit` is still pending until a write-capable Mnemosyne MCP token is available to Aegis in Codex.
+
+### QC Handoff
+
+Atlas/Fable should review the migration and caller changes before any apply-go. Primary QC targets: definer posture/ACLs, agent-context tenant-backstop validation, recall return-shape/drop-create correctness, score ordering preservation, and the explicit fts-only fixture rationale above.

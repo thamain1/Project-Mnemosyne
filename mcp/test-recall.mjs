@@ -64,7 +64,7 @@ await accepts('embed sends RETRIEVAL_QUERY + 768 + key header + model', async ()
 const mockEmbed = async () => toVecLiteral(vec(1))
 await accepts('runRecall calls recall_memory_hybrid with query text + embedding + filters + format', async () => {
   let call
-  const rpc = async (n, a) => { call = { n, a }; return { data: [{ name: 'x', title: 't', kind: 'project', source_path: 'memory/x.md', similarity: 0.9, updated_at: '2026-06-15', matched_via: 'both' }], error: null } }
+  const rpc = async (n, a) => { call = { n, a }; return { data: [{ name: 'x', title: 't', kind: 'project', source_path: 'memory/x.md', score: 0.031, similarity: 0.9, updated_at: '2026-06-15', matched_via: 'both' }], error: null } }
   const out = await runRecall({ query: 'q', k: 3, kind: 'project', project_id: UUID }, { embedQuery: mockEmbed, rpc })
   if (call.n !== 'recall_memory_hybrid') throw new Error('rpc name: ' + call.n)
   if (call.a.p_query !== 'q') throw new Error('p_query not raw text: ' + call.a.p_query)
@@ -73,7 +73,7 @@ await accepts('runRecall calls recall_memory_hybrid with query text + embedding 
   if (call.a.p_kind !== 'project') throw new Error('p_kind')
   if (call.a.p_project_id !== UUID) throw new Error('p_project_id')
   if (call.a.p_client_id !== null || call.a.p_deal_id !== null) throw new Error('unset filters must be null, not undefined')
-  if (!/x \(project\)/.test(out)) throw new Error('fmt')
+  if (!/\[score 0\.031 · sim 0\.90\] x \(project\)/.test(out)) throw new Error('fmt: ' + out)
 })
 await accepts('runRecall falls back to recall_memory when hybrid function is missing (pre-migration-0027 safety net)', async () => {
   const calls = []
@@ -125,7 +125,8 @@ await throws('runRecall propagates validation error', async () => { await runRec
 
 // --- formatResults ---
 eq('formatResults empty', 'No matches for: q', formatResults('q', []))
-await accepts('formatResults provenance + freshness', () => { const s = formatResults('q', [{ name: 'n', title: 't', kind: 'project', source_path: 'memory/n.md', similarity: 0.8, updated_at: '2026', matched_via: 'chunk' }]); if (!/source: memory\/n.md/.test(s) || !/via: chunk/.test(s)) throw new Error(s) })
+await accepts('formatResults score + similarity + provenance + freshness', () => { const s = formatResults('q', [{ name: 'n', title: 't', kind: 'project', source_path: 'memory/n.md', score: 0.0312, similarity: 0.8, updated_at: '2026', matched_via: 'chunk' }]); if (!/\[score 0\.031 · sim 0\.80\]/.test(s) || !/source: memory\/n.md/.test(s) || !/via: chunk/.test(s)) throw new Error(s) })
+await accepts('formatResults fts-only similarity null -> sim n/a', () => { const s = formatResults('q', [{ name: 'n2', title: 't2', kind: 'reference', source_path: 'memory/n2.md', score: 0.02, similarity: null, updated_at: '2026', matched_via: 'fts' }]); if (!/\[score 0\.020 · sim n\/a\]/.test(s)) throw new Error(s) })
 
 console.log(`[recall-test] pass=${pass} fail=${fail}`)
 if (fail) process.exitCode = 1
