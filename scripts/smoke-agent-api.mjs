@@ -186,9 +186,9 @@ async function main() {
   const sqlCrossB = await admin.rpc('get_agent_client_context', { p_client_slug: slugB, p_wanted_tags: [`isb-tech:${techId}`], p_limit: 20 })
   check('SQL BACKSTOP (reverse): client B slug + client A-only tech tag -> 0 rows', !sqlCrossB.error && (sqlCrossB.data ?? []).length === 0, sqlCrossB.error?.message ?? JSON.stringify(sqlCrossB.data))
 
-  const anonRpc = await anonClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [customerTag], p_limit: 20 })
+  const anonRpc = await anonClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [`isb-customer:${customerId}`], p_limit: 20 })
   check('get_agent_client_context direct execute as anon -> denied 42501', denied(anonRpc), anonRpc.error?.code ?? anonRpc.error?.message)
-  const authRpc = await authenticatedRpcClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [customerTag], p_limit: 20 })
+  const authRpc = await authenticatedRpcClient.rpc('get_agent_client_context', { p_client_slug: slugA, p_wanted_tags: [`isb-customer:${customerId}`], p_limit: 20 })
   check('get_agent_client_context direct execute as authenticated -> denied 42501', denied(authRpc), authRpc.error?.code ?? authRpc.error?.message)
 
   // ── rate limit trip (prove once per endpoint) — preset the bucket to empty rather than firing
