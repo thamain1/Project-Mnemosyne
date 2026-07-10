@@ -360,3 +360,22 @@ Atlas/Fable should review the migration and caller changes before any apply-go. 
 **Remaining gates (unchanged from WO order-of-execution):** Jesse apply-go → apply `0033` via
 Management API → post-apply `pg_proc.proacl` gate → push callers (CF auto-deploy) → full live smoke
 set → S1 key-rotation confirmation → final sign-off here.
+
+---
+
+## Unit S — APPLIED + DEPLOYED + LIVE-SMOKED — 2026-07-10 (Atlas/Fable, on Jesse apply-go)
+
+- **Migration `0033` APPLIED** (Management API, status 201). Post-apply gate PASSED:
+  `pg_proc.proacl` = `{postgres=X,service_role=X}` on BOTH functions (no anon/authenticated/PUBLIC);
+  `recall_memory_hybrid` live at the 8-col shape; live cross-tenant negative → 0 rows; unknown slug
+  → P0001 raise as designed.
+- **Pushed `main` → CF deploy `ac8bcc3` Active** (deployment `10d8360e`). Follow-up `897a73e`:
+  first live run caught an undefined `customerTag` in Aegis's new smoke checks (test-code only,
+  `node --check` can't see it) — fixed, pushed.
+- **Live smokes ALL GREEN:** agent-api **35/35** (incl. SQL-backstop negatives both directions +
+  anon/authenticated `42501` denial proofs), bridge-crm-hybrid **72/72** (incl. score/similarity
+  split, order-by-score, fts-only `similarity IS NULL` fixture), hosted-mcp **98/98**, log-update
+  **15/15**.
+- **⏳ S1 service-role key rotation: STILL OPEN (Jesse, ops).** Unit S final sign-off is HELD on
+  this — everything else is done. Next unit after S1 confirm: **Unit L (Librarian v1, migration
+  `0034`)**.
