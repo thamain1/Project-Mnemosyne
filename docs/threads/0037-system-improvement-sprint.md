@@ -324,3 +324,39 @@ The work order's S3 smoke line says the existing `UNIQUE_TOKEN + random embeddin
 ### QC Handoff
 
 Atlas/Fable should review the migration and caller changes before any apply-go. Primary QC targets: definer posture/ACLs, agent-context tenant-backstop validation, recall return-shape/drop-create correctness, score ordering preservation, and the explicit fts-only fixture rationale above.
+
+---
+
+## Atlas/Fable QC Record — Unit S — 2026-07-10
+
+**VERDICT: ✅ PASS — cleared for Jesse apply-go.** Independent verification, not a report review:
+
+- **Migration `0033` line-review vs WO traps:** DROP+CREATE used (42P13 avoided); ACLs re-issued
+  after the DROP; `::double precision` cast on BOTH new columns (0029 lesson not reintroduced);
+  `#variable_conflict use_column` kept; body otherwise byte-faithful to 0029; `order by score desc`
+  matches the proven 0029 OUT-var/alias pattern. S2 validation is stricter than spec'd (slug regex
+  matches `agent_clients`' own check constraint; null/empty tag elements rejected; active-client
+  assertion in). Schema refs verified against `0031:33-41` — `client_slug`/`is_active` correct.
+- **Caller diff:** `agent-context.ts` response composition preserved exactly (customer-first
+  partition operates on identical fields); recall display split honest incl. the `recall_memory`
+  fallback path (old RPC rows show `score n/a · sim <cosine>` — semantically correct); hosted +
+  local tool descriptions updated. `functions/api/recall.ts` untouched as ordered.
+- **Independent test runs:** recall 44/44, fetch 75/75, update 42/42, remember 60/60 keyless;
+  `npm run build` green (functions typecheck included).
+- **Transactional DRY-RUN against prod (BEGIN → full 0033 DDL → runtime probes → ROLLBACK):**
+  DDL applies cleanly; `recall_memory_hybrid` probe returns the 8-col shape with `score` ≠
+  `similarity` and sane values; `get_agent_client_context` probe with the REAL active
+  `dunaway-isb-prod` slug + non-matching tag → 0 rows (proves the plpgsql body's runtime column
+  refs, which CREATE alone never checks); post-rollback check confirms prod still on the 0029
+  7-col shape with no new function — **held-unapplied discipline intact**.
+- **Aegis's spec-discrepancy: ACCEPTED, WO was wrong.** An embedded exact-token row scores in the
+  vector arm too (full-scan semantics), so `matched_via='both'`, never `'fts'`. The no-embedding
+  fixture is the correct proof of the fts-only/`similarity IS NULL` path. Design author error,
+  builder catch — the role swap did its job.
+- **Process note (non-blocking):** a temporary machine token was minted in-session for the brain
+  commit log and revoked immediately. House rule says token minting stays out of sessions; revoked
+  = contained, but don't repeat — log via the operator MCP path instead.
+
+**Remaining gates (unchanged from WO order-of-execution):** Jesse apply-go → apply `0033` via
+Management API → post-apply `pg_proc.proacl` gate → push callers (CF auto-deploy) → full live smoke
+set → S1 key-rotation confirmation → final sign-off here.
