@@ -130,7 +130,7 @@ async function resolveProject(admin: any, projectName: string): Promise<ResolveR
   const slug = slugify(projectName)
   if (!slug) return { ok: false, reason: 'no_match', candidates: [] } // an empty slug would `.includes('')`-match everything
 
-  const { data: memAll, error: memErr } = await admin.from('memory_entries').select('name, title, body, updated_at').eq('kind', 'project')
+  const { data: memAll, error: memErr } = await admin.from('memory_entries').select('name, title, body, updated_at').eq('kind', 'project').eq('archived', false)
   if (memErr) throw new Error(`brief: memory slug fallback lookup failed: ${memErr.message}`)
   const memRows: MemEntry[] = memAll ?? []
 
@@ -166,6 +166,7 @@ export async function runBrief(args: any, { admin }: { admin: any }): Promise<an
       .select('name, title, body, updated_at')
       .eq('project_id', resolved.id)
       .eq('kind', 'project')
+      .eq('archived', false)
       .order('updated_at', { ascending: false })
       .limit(1)
     resumeRow = (memRows ?? [])[0] ?? null

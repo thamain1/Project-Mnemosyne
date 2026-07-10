@@ -11,9 +11,8 @@
 // thread 0027 "Machine identity model" for the full reasoning. Fails CLOSED throughout: any auth,
 // scope, or transport ambiguity returns a rejection before touching Gemini or writing anything.
 //
-// 🔴 HARD GATE (thread 0027): the service-role key must be ROTATED before the first real machine
-// token is issued — a copy of it traveled to a remote machine under the killed REMOTE-SETUP runbook.
-// Rotation is a deploy-gate step in this unit's acceptance criteria, not optional and not separate.
+// Service-role key rotation gate CLOSED 2026-07-02 (thread 0037 Unit S close-out): the exposed legacy
+// key was replaced and legacy JWT keys were disabled project-wide. Keep this as the historical record.
 //
 // SCOPE DECISION (thread 0029 item 4): v1 is CLI/server-side MCP clients ONLY. Browser-hosted clients
 // (e.g. a claude.ai web connector) are explicitly OUT OF SCOPE — they bring OAuth/dynamic-client-
@@ -52,6 +51,7 @@ import { runFetch, MAX_NAME_LEN, MAX_CHARS_CAP } from '../../mcp/lib/fetch-core.
 import { runLogUpdate, MAX_ACTION_LEN } from '../../mcp/lib/log-core.mjs'
 import { makeEmbedDoc, runRemember, MAX_TITLE_LEN, MAX_BODY_LEN } from '../../mcp/lib/remember-core.mjs'
 import { runUpdate, MAX_CHANGE_REASON_LEN } from '../../mcp/lib/update-core.mjs'
+import { runRevert } from '../../mcp/lib/revert-core.mjs'
 import { runGetSecret } from '../../mcp/lib/getsecret-core.mjs'
 import { runBrief } from '../_lib/brief'
 import { prepareClientBrief, executeClientBrief, runClient360, type PreparedClientBrief } from '../_lib/client-brief'
@@ -78,6 +78,7 @@ const RATE_LIMITS: Record<string, { limit: number; windowSeconds: number }> = {
   // client-resolution-gated — 10/min is generous for a human owner, tight enough to blunt a runaway loop.
   remember: { limit: 10, windowSeconds: 60 },
   update: { limit: 10, windowSeconds: 60 },
+  revert: { limit: 6, windowSeconds: 60 },
   // client_brief writes + embeds a research artifact — deliberately tight (thread 0033 design: 6/hour)
   // vs. every other bucket's 60s window; a prospect-research session does a handful of these, not dozens.
   client_brief: { limit: 6, windowSeconds: 3600 },
@@ -178,6 +179,20 @@ const TOOLS: ToolDef[] = [
         expected_updated_at: { type: 'string', description: 'REQUIRED ISO timestamp the entry showed when you fetched it; the update is rejected if the entry changed since (optimistic concurrency — forces read-before-write).' },
       },
       required: ['name', 'title', 'body', 'kind', 'expected_updated_at'],
+    },
+  },
+  {
+    name: 'revert',
+    scope: 'revert',
+    description: 'Restore an existing memory to a prior version. Refuses secret-contaminated history, uses optimistic concurrency, re-embeds through update_memory, and appends new history.',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'Slug of the existing entry to restore.' },
+        version_no: { type: 'integer', minimum: 1, description: 'Prior version number to restore.' },
+        reason: { type: 'string', maxLength: MAX_CHANGE_REASON_LEN, description: 'Optional operator context appended to the audit reason.' },
+      },
+      required: ['name', 'version_no'],
     },
   },
   {
@@ -485,6 +500,12 @@ async function callTool(name: string, args: any, ctx: { admin: any; gemini: stri
   if (name === 'update') {
     const embedDoc = makeEmbedDoc({ apiKey: gemini })
     const text = await runUpdate(args, { embedDoc, rpc, actorId: actor.id })
+    return toolText(text)
+  }
+
+  if (name === 'revert') {
+    const embedDoc = makeEmbedDoc({ apiKey: gemini })
+    const text = await runRevert(args, { embedDoc, rpc, actorId: actor.id })
     return toolText(text)
   }
 

@@ -393,3 +393,44 @@ set → S1 key-rotation confirmation → final sign-off here.
 criteria met: SQL-layer tenant backstop live + proven both directions + `42501` denials proven;
 honest `score`/`similarity` live with ordering unchanged; key posture verified rotated/legacy-dead.
 **Next: Unit L (Librarian v1, migration `0034`) — Atlas writes the WO on request.**
+
+---
+
+## Unit L — Aegis Build Report — 2026-07-10
+
+**STATUS: BUILT LOCALLY, MIGRATION HELD UNAPPLIED, AWAITING ATLAS/FABLE QC + JESSE APPLY-GO.**
+
+Implemented the Unit L work order in the working tree while preserving Atlas's in-progress changes:
+
+- `supabase/migrations/0034_librarian_v1.sql`: lifecycle columns, side-table recall stats, archived
+  filtering, curation RPCs, volatile recall bumps, report-only librarian digest + cron, and the
+  service-role-only version reader. The side-table preserves the `updated_at` concurrency contract.
+- Revert core and local/hosted `revert` tools, including egress secret refusal before embedding,
+  shared update payload construction, optimistic concurrency, and append-only versioning.
+- Archived filters in the brief and Memories browse query.
+- `docs/runbooks/librarian.md`: human-gated consolidation/stale/dead-link procedure and L6 weekly
+  activity synthesis section.
+- `scripts/smoke-librarian.mjs`: post-apply digest, four-section, fixture, cleanup, and same-day
+  idempotency smoke. Extended `scripts/smoke-bridge-crm-hybrid.mjs` with recall-stat, archived
+  exclusion, and unchanged-`updated_at` regression assertions.
+- Carried S1 stale rotation comment to past tense.
+
+### Verification
+
+- `node mcp/test-revert.mjs` — PASS, 23/23.
+- `node --check scripts/smoke-librarian.mjs` and `node --check mcp/lib/revert-core.mjs` — PASS.
+- `npm run build` — PASS, TypeScript/functions/Vite production build.
+- `git diff --check` — PASS.
+- Full live SQL dry-run, post-apply ACL/provolatile/cron gate, live smokes, and operator-MCP commit
+  logging are not run in this build phase. The Supabase CLI is unavailable in this environment;
+  migration execution remains explicitly gated and no machine token was minted.
+
+### QC Targets / Known Review Points
+
+- Atlas/Fable must transactionally dry-run `0034` against the hosted database and verify all new and
+  replaced function ACLs, volatility, cron registration, and unchanged `updated_at` histogram.
+- Confirm `log_activity`'s narrowly extended null-actor carve-out for `librarian.digest` is accepted.
+- Confirm the `archive_memory` defaulted trailing reason parameter shape and report JSON string fields
+  satisfy the existing flat-detail audit contract.
+- After apply-go, run `scripts/smoke-librarian.mjs`, the extended bridge smoke, and the revert round-trip
+  smoke before any code/migration push.

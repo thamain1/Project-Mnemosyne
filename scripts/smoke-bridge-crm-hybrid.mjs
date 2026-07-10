@@ -350,6 +350,23 @@ async function main() {
     check('client_id filter excludes the unrelated entry', !filteredNames.includes(unrelatedName), filteredNames.join(','))
     await admin.from('memory_entries').delete().eq('name', unrelatedName)
 
+    // Unit L: recall bumps the side-table only, never memory_entries.updated_at, and archived
+    // entries disappear from hybrid recall until explicitly unarchived.
+    const beforeL = (await admin.from('memory_entries').select('updated_at').eq('id', memId).maybeSingle()).data
+    const beforeStats = (await admin.from('memory_recall_stats').select('recall_count').eq('entry_id', memId).maybeSingle()).data
+    const l1 = await admin.rpc('recall_memory_hybrid', { p_query: UNIQUE_TOKEN, p_embedding: vec1, p_match_count: 20 })
+    const l2 = await admin.rpc('recall_memory_hybrid', { p_query: UNIQUE_TOKEN, p_embedding: vec1, p_match_count: 20 })
+    const afterStats = (await admin.from('memory_recall_stats').select('recall_count, last_recalled_at').eq('entry_id', memId).maybeSingle()).data
+    check('Unit L recall probes execute', !l1.error && !l2.error, l1.error?.message ?? l2.error?.message)
+    check('Unit L recall bump count increments by two', afterStats?.recall_count === (beforeStats?.recall_count ?? 0) + 2, JSON.stringify({ beforeStats, afterStats }))
+    check('Unit L recall bump leaves updated_at unchanged', (await admin.from('memory_entries').select('updated_at').eq('id', memId).maybeSingle()).data?.updated_at === beforeL?.updated_at)
+    const archived = await admin.rpc('archive_memory', { p_actor: memberUid, p_name: memName, p_archived: true, p_reason: 'Unit L smoke archive' })
+    const archivedRecall = await admin.rpc('recall_memory_hybrid', { p_query: UNIQUE_TOKEN, p_embedding: vec1, p_match_count: 20 })
+    check('Unit L archive RPC executes', !archived.error, archived.error?.message)
+    check('Unit L archived entry excluded from hybrid recall', !archivedRecall.error && !(archivedRecall.data ?? []).some((r) => r.name === memName), JSON.stringify(archivedRecall.data))
+    const unarchived = await admin.rpc('archive_memory', { p_actor: memberUid, p_name: memName, p_archived: false, p_reason: 'Unit L smoke restore' })
+    check('Unit L unarchive restores entry state', !unarchived.error, unarchived.error?.message)
+
     // old recall_memory(vector,int) untouched — still works standalone
     const oldRes = await admin.rpc('recall_memory', { query_embedding: randomEmbedding, match_count: 5 })
     check('old recall_memory(vector,int) still works, untouched by this migration', !oldRes.error, oldRes.error?.message)

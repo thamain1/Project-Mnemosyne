@@ -19,6 +19,7 @@ import { runLogUpdate, MAX_ACTION_LEN } from './lib/log-core.mjs'
 import { runGetSecret } from './lib/getsecret-core.mjs'
 import { runFetch } from './lib/fetch-core.mjs'
 import { runUpdate, MAX_CHANGE_REASON_LEN } from './lib/update-core.mjs'
+import { runRevert } from './lib/revert-core.mjs'
 import { logMcpUsage, TELEMETRY_ON } from './lib/usage-core.mjs'
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY
@@ -113,6 +114,21 @@ const UPDATE_TOOL = {
   },
 }
 
+const REVERT_TOOL = {
+  name: 'revert',
+  description: 'Restore an existing memory to a prior version. Reads the current entry for optimistic concurrency, refuses secret-contaminated historical bodies, re-embeds through the normal update path, and appends a new version rather than rewriting history.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      name: { type: 'string', maxLength: MAX_NAME_LEN, description: 'Slug of the existing entry to restore.' },
+      version_no: { type: 'integer', minimum: 1, description: 'Prior memory_versions version number to restore.' },
+      reason: { type: 'string', maxLength: MAX_CHANGE_REASON_LEN, description: 'Optional operator context appended to the audit reason.' },
+    },
+    required: ['name', 'version_no'],
+  },
+}
+
 // APPEND tool — writes activity_log via the hardened service-role-only log_activity RPC (0009).
 const LOG_UPDATE_TOOL = {
   name: 'log_update',
@@ -151,12 +167,13 @@ const HANDLERS = {
   fetch: (args) => runFetch(args, { rpc }),
   remember: (args) => runRemember(args, { embedDoc, rpc, actorId: OPERATOR_ID }),
   update: (args) => runUpdate(args, { embedDoc, rpc, actorId: OPERATOR_ID }),
+  revert: (args) => runRevert(args, { embedDoc, rpc, actorId: OPERATOR_ID }),
   log_update: (args) => runLogUpdate(args, { rpc, actorId: OPERATOR_ID }),
   get_secret: (args) => runGetSecret(args, { rpc, actorId: OPERATOR_ID }),
 }
 
 const server = new Server({ name: 'mnemosyne', version: '0.1.0' }, { capabilities: { tools: {} } })
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [RECALL_TOOL, FETCH_TOOL, REMEMBER_TOOL, UPDATE_TOOL, LOG_UPDATE_TOOL, GET_SECRET_TOOL] }))
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [RECALL_TOOL, FETCH_TOOL, REMEMBER_TOOL, UPDATE_TOOL, REVERT_TOOL, LOG_UPDATE_TOOL, GET_SECRET_TOOL] }))
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const handler = HANDLERS[req.params.name]
   if (!handler) return { isError: true, content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }] }
@@ -174,4 +191,4 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 const transport = new StdioServerTransport()
 await server.connect(transport)
-console.error('[mnemosyne] MCP server connected — tools: recall, fetch, remember, update, log_update, get_secret')
+console.error('[mnemosyne] MCP server connected - tools: recall, fetch, remember, update, revert, log_update, get_secret')

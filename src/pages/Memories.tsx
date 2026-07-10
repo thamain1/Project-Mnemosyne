@@ -68,7 +68,7 @@ export default function Memories() {
     const base = 'name, title, kind, source_path, updated_at, links'
     ;(async () => {
       const load = (cols: string) =>
-        supabase.from('memory_entries').select(cols).order('updated_at', { ascending: false })
+        supabase.from('memory_entries').select(cols).eq('archived', false).order('updated_at', { ascending: false })
       let res: { data: unknown; error: { message: string } | null } = await load(`${base}, tags, client_id, deal_id`)
       if (res.error) res = await load(`${base}, tags`)  // client_id/deal_id not present yet (pre-0027)
       if (res.error) res = await load(base)             // tags column not present yet (pre-0011)
