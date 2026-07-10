@@ -376,6 +376,20 @@ set → S1 key-rotation confirmation → final sign-off here.
   anon/authenticated `42501` denial proofs), bridge-crm-hybrid **72/72** (incl. score/similarity
   split, order-by-score, fts-only `similarity IS NULL` fixture), hosted-mcp **98/98**, log-update
   **15/15**.
-- **⏳ S1 service-role key rotation: STILL OPEN (Jesse, ops).** Unit S final sign-off is HELD on
-  this — everything else is done. Next unit after S1 confirm: **Unit L (Librarian v1, migration
-  `0034`)**.
+- **S1 CLOSED AS ALREADY-SATISFIED — design-doc error, Jesse caught it (2026-07-10).** The
+  rotation happened 2026-07-02 in the 0027 deploy gate: new `sb_secret` piped direct to CF +
+  `.env.local`/`mcp/.env.local` patched + **legacy JWT keys disabled project-wide** — the key the
+  killed REMOTE-SETUP runbook had exposed died then. Re-verified live today: both env files hold
+  `sb_secret`-format keys (boolean check only, no material echoed) and the Management API returns
+  `{"enabled":false}` for legacy API keys. Root cause of the false reopen: the architecture review
+  agent read the 0024 roadmap (written 7/1, PRE-rotation) + the historical gate comment in
+  `mcp.ts:14-16` and reported rotation "still owed"; Atlas carried it into this design + the Unit S
+  WO without cross-checking the 7/2 record. Lesson recorded: review-agent findings about
+  *completed-vs-owed state* must be checked against the thread docs' close-out entries, not just
+  roadmap docs and code comments (both age). The stale `mcp.ts` gate comment should be updated to
+  past-tense in the next code-touching unit (cosmetic, not urgent).
+
+**✅ UNIT S FINAL SIGN-OFF — 2026-07-10 (Atlas/Fable QC, Jesse gate-close on S1).** All acceptance
+criteria met: SQL-layer tenant backstop live + proven both directions + `42501` denials proven;
+honest `score`/`similarity` live with ordering unchanged; key posture verified rotated/legacy-dead.
+**Next: Unit L (Librarian v1, migration `0034`) — Atlas writes the WO on request.**
