@@ -319,7 +319,7 @@ The work order's S3 smoke line says the existing `UNIQUE_TOKEN + random embeddin
 - Live smokes not run.
 - S1 service-role key rotation not verified.
 - Post-apply ACL/proacl gate not run.
-- Hosted brain `log_update work.commit` is still pending until a write-capable Mnemosyne MCP token is available to Aegis in Codex.
+- Hosted brain `log_update work.commit` landed for local build commit `be88901` using a temporary `log_update` machine token; token was revoked immediately after the call.
 
 ### QC Handoff
 
