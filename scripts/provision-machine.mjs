@@ -20,13 +20,13 @@ const URL = process.env.VITE_SUPABASE_URL
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!URL || !SERVICE) { console.error('missing env (VITE_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)'); process.exit(1) }
 
-const ALL_SCOPES = ['recall', 'fetch', 'log_update', 'brief', 'get_secret', 'remember', 'update', 'client_brief', 'client_360']
+const ALL_SCOPES = ['recall', 'fetch', 'log_update', 'brief', 'get_secret', 'remember', 'update', 'revert', 'client_brief', 'client_360']
 const DEFAULT_SCOPES = ['recall', 'log_update']   // minimal by default, per thread 0027's stated posture
 
 function parseArgs(argv) {
   const label = argv[0]
   if (!label || label.startsWith('--')) {
-    console.error('usage: node scripts/provision-machine.mjs <label> [--scopes recall,fetch,log_update,brief,get_secret,remember,update,client_brief,client_360] [--expires-days N] [--admin]')
+    console.error('usage: node scripts/provision-machine.mjs <label> [--scopes recall,fetch,log_update,brief,get_secret,remember,update,revert,client_brief,client_360] [--expires-days N] [--admin]')
     process.exit(1)
   }
   let scopes = DEFAULT_SCOPES
