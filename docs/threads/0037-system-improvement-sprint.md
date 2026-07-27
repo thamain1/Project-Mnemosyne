@@ -577,3 +577,129 @@ for the `verified_at` default/backfill/not-null repair above.
 
 **AEGIS SIGN-OFF — reviewed HEAD `ad249ef` (`main`); verdict HOLD pending the `verified_at` lifecycle
 forward fix and corrected sibling smoke assertions. No push performed.**
+
+---
+
+## Unit L QC Record — Round 2 — Aegis — 2026-07-27
+
+### Verdict
+
+**STILL HOLD at reviewed HEAD `a2a3303`.** Migration `0036` correctly makes NULL
+`verified_at` mean “never verified,” queues those rows ahead of dated stale rows, adds honest
+truncation flags, and repairs all four smoke count assertions. The HOLD remains because the new
+820-character per-section cap does not guarantee the existing 4096-**byte** outer-detail limit.
+A disposable production fixture reproduced a hard digest failure:
+`log_activity: detail exceeds 4096 bytes`.
+
+This verdict covers `ca23357` plus its applied live function. The first real digest acceptance demo
+with Jesse remains explicitly outstanding and is not marked complete.
+
+### Independent verification run
+
+- `node --check scripts/smoke-librarian.mjs` — **PASS**.
+- `npm run build` — **PASS** (`tsc -b`, functions typecheck, Vite production build).
+- `node mcp/test-revert.mjs` — **23/23 PASS**.
+- `git diff --check` — **PASS** before this record.
+- `node --env-file=.env.local scripts/smoke-librarian.mjs` — **27/27 PASS twice
+  consecutively**. Both runs independently produced exact deltas:
+  stale `3→4`, near-dups `38→39`, dead links `29→30`, consolidation `0→1`;
+  `never_verified_count=3`; observed detail size 2466 bytes; cleanup passed.
+- `node --env-file=.env.local scripts/smoke-bridge-crm-hybrid.mjs` —
+  **78/78 PASS** after `0036`.
+- Read-only Management API probes verified the live function body/posture, cron, NULL counts,
+  both truncation-flag directions, zero smoke fixtures, and adversarial PostgreSQL byte budgets.
+- A scoped production byte-budget reproduction inserted one exact-name disposable memory, called
+  the live librarian, received the expected 400 failure, then deleted the digest and memory;
+  final cleanup returned zero fixture rows.
+
+### Round-2 per-target findings
+
+1. **VERIFIED — NULL rows are queued with the intended priority.** Live catalog inspection found
+   `run_memory_librarian()` contains both `e.verified_at is null` arms and
+   `order by e.verified_at asc nulls first` (`0036:60-91`). A separate live query returned
+   three unarchived NULL rows and three total stale rows, proving none are skipped today.
+   `never_verified_count` matched those rows in both 27-check runs. Repository-wide search found
+   the only production assignment that clears NULL is
+   `confirm_memory_verified` (`0034:100-126`); insert paths intentionally omit it. NULL-first is
+   consistent with Jesse’s explicit “unreviewed before merely stale” priority. The count and
+   truncation flag make backlog/starvation visible if never-verified rows exceed the 15-row sample.
+
+2. **VERIFIED — NULL-meaningful has no current downstream break.** Repository-wide `verified_at`
+   search found no application, MCP, brief, UI, or Unit R consumer that assumes non-NULL. Outside
+   migrations/tests, the field is consumed only by the librarian and set by the confirmation RPC.
+   The live schema remains `nullable=YES, default=NULL`, matching the recorded decision. Updates and
+   reverts do not silently claim human verification, which is the safer semantic.
+
+3. **DEFECT — the 820-character cap is not a safe byte budget.**
+   - Live PostgreSQL construction using maximum intended ASCII-shaped section objects produced
+     inner lengths `[690,816,760,798]` and a 3632-byte outer detail, so the normal ASCII case has
+     464 bytes of margin.
+   - An adversarial construction kept every inner JSON string below 820 **characters**
+     (`[795,757,750,792]`) but used multibyte content. The resulting outer JSONB detail was
+     **12,377 bytes**. Inner quotes/backslashes are also re-escaped when those JSON arrays are stored
+     as outer string fields.
+   - Production reproduction: a valid disposable memory with an ASCII slug and one 700-character
+     Unicode `[[dead-link target]]` sorted into the dead-link sample. The live
+     `run_memory_librarian()` call returned HTTP 400:
+     `log_activity: detail exceeds 4096 bytes`. Cleanup passed.
+   - Root cause: trim loops use `length(v_*::text)` (`0036:159-170`), while `log_activity` enforces
+     `octet_length(p_detail::text) <= 4096` on the fully assembled outer object (`0034:365`).
+     `extractLinks` preserves arbitrary link text (`remember-core.mjs:95`), and the write RPC checks
+     link element type but has no ASCII/slug/length restriction, so this is reachable through the
+     normal hosted `remember` path, not only direct SQL.
+
+4. **VERIFIED — truncation flags are correct in both directions on real data.** In both live runs:
+   stale `4/4 → false`, near-dups `6/39 → true`, dead links `8/30 → true`, and consolidation
+   `1/1 → false`. Static inspection confirms flags are computed after trimming as
+   `count > jsonb_array_length(sample)` (`0036:172-188`), covering SQL limits and trim removal.
+
+5. **DEFECT in byte-budget coverage; otherwise VERIFIED — rewritten smoke.** Baselines and exact
+   deltas cover all four sections; samples are now used only for shape/cap honesty; distinct one-hot
+   fixtures eliminate the prior 21-pair near-dup error (`smoke-librarian.mjs:26-30,71-118`).
+   Cleanup is in `finally`, so ordinary failures between baseline and fixture runs delete today’s
+   digest and fixtures; only hard process termination has the same residual-risk class as every
+   production smoke. However, line 117 measures `Buffer.byteLength(JSON.stringify(d))` on the
+   current returned object. That is dataset-only and not the exact PostgreSQL
+   `octet_length(detail::text)` enforcement surface, so it passed 2466 while the multibyte
+   production reproduction failed.
+
+6. **VERIFIED — no remaining capped-sample or hidden fixture-count assertion.** Every section uses a
+   baseline count delta and independently validates sample shape plus flag honesty
+   (`smoke-librarian.mjs:92-114`). The one-hot assumption can create a future false failure if live
+   embeddings ever sit within distance 0.10 of a basis vector, but cannot create a false pass; the
+   exact-delta assertion would stop the smoke. Concurrent real-data writes between baseline and
+   fixture digests have the same fail-loud property.
+
+7. **VERIFIED — no unintended `0034` regression.** A mechanical comparison found the complete
+   near-duplicate, dead-link, and consolidation query block byte-identical between `0034` and
+   `0036`; all four trim loops are byte-identical; ACL tail remains present. Intended differences
+   are limited to NULL stale handling/order/count, cap `950→820`, and five new flat detail fields.
+   Live posture is still volatile, security-definer, empty search path, and
+   `{postgres=X,service_role=X}` execute ACL. Cron remains exactly one active
+   `mnemosyne_memory_librarian_daily` job at `10 12 * * *`. The 78/78 hybrid regression passed.
+
+### New defect and required forward fix
+
+**Production digest can be denied by multibyte or heavily escaped sample content.**
+
+Reproduction:
+
+1. Create a normal memory whose body contains a long Unicode wiki link such as
+   `[[<700 multibyte characters>]]`; the hosted remember path preserves the target in `links`.
+2. Ensure its source name sorts into the dead-link sample and delete today’s idempotency row.
+3. Call `run_memory_librarian()`.
+4. Result reproduced on prod: HTTP 400,
+   `log_activity: detail exceeds 4096 bytes`.
+
+Forward fix should not guess another per-section character constant. In the next migration:
+
+1. Build the complete flat detail into a `v_detail jsonb` variable.
+2. Test the exact enforcement surface: `octet_length(v_detail::text)`.
+3. While it exceeds 4096, remove a trailing element from a deterministic lowest-priority nonempty
+   sample, rebuild all four truncation flags and `v_detail`, and repeat. Counts remain authoritative.
+4. Call `log_activity` only after the assembled object is within budget.
+5. Extend the smoke with a multibyte/escaping fixture and assert the server-side
+   `octet_length(detail::text)`, not only Node’s reserialization.
+
+**AEGIS ROUND-2 SIGN-OFF — reviewed HEAD `a2a3303` (`main`); verdict STILL HOLD pending an
+outer-JSON octet-budget fix and adversarial smoke coverage. No push performed.**
