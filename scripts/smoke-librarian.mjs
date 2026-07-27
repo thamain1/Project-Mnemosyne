@@ -1,17 +1,26 @@
-// Unit L live smoke. Run only after migrations 0034 + 0036 are applied:
+// Unit L live smoke. Run only after migrations 0034 + 0036 + 0037 are applied:
 // node --env-file=.env.local scripts/smoke-librarian.mjs
+//
+// Needs VITE_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY, and additionally SUPABASE_ACCESS_TOKEN +
+// SUPABASE_PROJECT_REF for the byte-budget assertion (see byteLenOfTodaysDigest below).
 //
 // Method: the librarian is run TWICE -- once before fixtures to capture a baseline of all four
 // counts using its own predicates, then again with fixtures in place -- and every section is
 // asserted on an exact count DELTA. Sample arrays are checked only for shape and cap honesty.
-// Searching a sample for a fixture is not a valid assertion: each *_json is a capped excerpt
-// (0034 L3 trim loop, tightened in 0036), so on a real database the fixture is usually trimmed out.
+// Searching a sample for a fixture is not a valid assertion: each *_json is a capped excerpt, so on
+// a real database the fixture is usually trimmed out.
 import { createClient } from '@supabase/supabase-js'
 
 const URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
+const MGMT = process.env.SUPABASE_ACCESS_TOKEN
+const REF = process.env.SUPABASE_PROJECT_REF
 if (!URL || !SERVICE) {
   console.error('missing VITE_SUPABASE_URL/SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
+  process.exit(1)
+}
+if (!MGMT || !REF) {
+  console.error('missing SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF (needed for the byte-budget check)')
   process.exit(1)
 }
 
@@ -21,6 +30,9 @@ const prefix = `smoke-0034-${stamp}`
 const names = {
   stale: `${prefix}-stale`, dupA: `${prefix}-dup-a`, dupB: `${prefix}-dup-b`,
   dead: `${prefix}-dead-link`, agentA: `${prefix}-agent-a`, agentB: `${prefix}-agent-b`, agentC: `${prefix}-agent-c`,
+  // Leading zeros so it sorts FIRST in the dead-link sample (ordered by e.name), guaranteeing the
+  // multibyte target actually reaches the digest rather than being cut by the LIMIT 15.
+  multibyte: `0000-${prefix}-multibyte`,
 }
 
 // Distinct one-hot vectors per fixture. Previously every fixture shared ONE vector, so all seven were
@@ -28,6 +40,10 @@ const names = {
 // deliberately share a vector so they are the ONLY new pair. A one-hot is ~1.0 cosine distance from
 // any real Gemini embedding, far outside the 0.10 near-dup threshold, so it cannot pair with live data.
 const oneHot = (i) => `[${Array.from({ length: 768 }, (_, j) => (j === i ? '1' : '0')).join(',')}]`
+
+// 700 three-byte characters ~= 2100 bytes in ONE dead-link element, while staying well under the
+// per-string 990-CHARACTER cap. This is the exact shape that defeated 0036: char-legal, byte-illegal.
+const MULTIBYTE_TARGET = '中'.repeat(700)
 
 // digest_date is Postgres current_date, i.e. the server's UTC date -- match on UTC components, not
 // local ones. A local-date build would target the wrong digest_date whenever the two disagree.
@@ -37,12 +53,45 @@ const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(
 let pass = 0, fail = 0
 function check(label, ok, detail = '') { ok ? pass++ : fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? `: ${detail}` : ''}`) }
 
-// The digest always stamps source='cron' (0034 L3), so the original `.like('detail->>source','smoke')`
-// predicate matched nothing and the smoke left its digest row behind. Because run_memory_librarian is
-// same-day idempotent, that made a second same-day run silently assert against the PREVIOUS run's
-// digest. Delete by digest_date instead.
-// NOTE: this consumes today's digest slot; the daily cron will not re-emit until tomorrow. The digest
-// is report-only and fully regenerable, so that is a deliberate, stated trade for a repeatable smoke.
+const DIGEST_COLS = 'id, actor_id, action, entity_type, entity_id, detail, created_at'
+
+// Measures the EXACT expression log_activity enforces (octet_length(detail::text)). Node's
+// Buffer.byteLength(JSON.stringify(row)) is NOT equivalent -- it reserializes with different key
+// order, number formatting and escaping, which is precisely why the 0036 smoke read 2466 bytes while
+// the real digest 400'd. Verify on the enforcement surface, not a proxy for it.
+async function byteLenOfTodaysDigest() {
+  const res = await fetch(`https://api.supabase.com/v1/projects/${REF}/database/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${MGMT}`, 'Content-Type': 'application/json', 'User-Agent': 'mnemosyne-smoke-librarian' },
+    body: JSON.stringify({
+      query: `select coalesce(max(octet_length(detail::text)), -1)::int as n from public.activity_log
+              where action='librarian.digest' and detail->>'digest_date' = '${today}';`,
+    }),
+  })
+  if (!res.ok) throw new Error(`byteLen query HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  return (await res.json())?.[0]?.n
+}
+
+// The digest is same-day idempotent, so the smoke must clear today's row to run at all. Earlier
+// versions simply deleted it, which destroyed the REAL cron digest and left no audit trail for that
+// day -- repeated QC runs erased exactly the artifact Unit L exists to produce. Snapshot it first and
+// put it back at the end.
+let preexistingDigest = null
+async function captureDigest() {
+  const { data, error } = await db.from('activity_log').select(DIGEST_COLS).eq('action', 'librarian.digest').eq('detail->>digest_date', today).limit(1)
+  if (error) throw new Error(`captureDigest: ${error.message}`)
+  return data?.[0] ?? null
+}
+async function restoreDigest() {
+  if (!preexistingDigest) return 'nothing to restore'
+  const { data: current, error: readErr } = await db.from('activity_log').select('id').eq('action', 'librarian.digest').eq('detail->>digest_date', today).limit(1)
+  if (readErr) throw new Error(`restoreDigest read: ${readErr.message}`)
+  if (current?.length) return 'slot already occupied, left as-is'
+  const { error } = await db.from('activity_log').insert(preexistingDigest)
+  if (error) throw new Error(`restoreDigest insert: ${error.message}`)
+  return 'restored'
+}
+
 async function deleteDigest() {
   const { error } = await db.from('activity_log').delete().eq('action', 'librarian.digest').eq('detail->>digest_date', today)
   if (error) throw new Error(`deleteDigest: ${error.message}`)
@@ -66,6 +115,8 @@ async function runDigest(label) {
 const SECTIONS = ['stale', 'near_dups', 'dead_links', 'consolidation']
 
 try {
+  preexistingDigest = await captureDigest()
+  console.log(`  --   pre-existing digest for ${today}: ${preexistingDigest ? 'captured, will be restored' : 'none'}`)
   await removeFixtures()
 
   // --- baseline: the librarian's own counts with no fixtures present ---
@@ -100,7 +151,6 @@ try {
   const { count: nullRows } = await db.from('memory_entries').select('name', { count: 'exact', head: true }).is('verified_at', null).eq('archived', false)
   check('never_verified_count matches live NULL rows', Number(d.never_verified_count) === nullRows, `digest=${d.never_verified_count} live=${nullRows}`)
   check('never-verified rows are inside the stale queue', Number(d.stale_count) >= nullRows, `stale=${d.stale_count} never_verified=${nullRows}`)
-  // Fixtures all set verified_at, so they must not inflate the never-verified figure.
   check('fixtures did not change never_verified_count', Number(d.never_verified_count) === Number(base.never_verified_count),
     `${base.never_verified_count} -> ${d.never_verified_count}`)
 
@@ -113,9 +163,30 @@ try {
       `flag=${d[`${key}_truncated`]} count=${count} sample=${sample.length}`)
   }
 
-  // --- detail must stay inside log_activity's 4096-byte cap (0036 lowered the per-section cap) ---
-  const detailBytes = Buffer.byteLength(JSON.stringify(d), 'utf8')
-  check('digest detail within the 4096-byte cap', detailBytes <= 4096, `${detailBytes} bytes`)
+  const asciiBytes = await byteLenOfTodaysDigest()
+  check('ASCII digest within the 4096-byte cap (server-side octet_length)', asciiBytes > 0 && asciiBytes <= 4096, `${asciiBytes} bytes`)
+
+  // --- 0037: the multibyte case that defeated 0036's character cap ---
+  await deleteDigest()
+  await insert(names.multibyte, { embedding: oneHot(6), links: [MULTIBYTE_TARGET] })
+  check('multibyte target is char-legal but byte-heavy', MULTIBYTE_TARGET.length <= 990 && Buffer.byteLength(MULTIBYTE_TARGET, 'utf8') > 2000,
+    `${MULTIBYTE_TARGET.length} chars / ${Buffer.byteLength(MULTIBYTE_TARGET, 'utf8')} bytes`)
+
+  let mbDigest = null, mbError = null
+  try { mbDigest = await runDigest('multibyte digest') } catch (e) { mbError = e.message }
+  check('librarian still emits a digest with multibyte link content', mbError === null, mbError ?? '')
+
+  if (mbDigest) {
+    const mbBytes = await byteLenOfTodaysDigest()
+    check('multibyte digest within the 4096-byte cap (server-side octet_length)', mbBytes > 0 && mbBytes <= 4096, `${mbBytes} bytes`)
+    check('multibyte digest still reports honest counts', Number(mbDigest.dead_links_count) >= Number(d.dead_links_count),
+      `${d.dead_links_count} -> ${mbDigest.dead_links_count}`)
+    for (const key of SECTIONS) {
+      const sample = JSON.parse(mbDigest[`${key}_json`] ?? '[]')
+      check(`${key}_truncated still honest under byte pressure`, mbDigest[`${key}_truncated`] === (Number(mbDigest[`${key}_count`]) > sample.length),
+        `flag=${mbDigest[`${key}_truncated`]} count=${mbDigest[`${key}_count`]} sample=${sample.length}`)
+    }
+  }
 
   // --- same-day idempotency ---
   const second = await db.rpc('run_memory_librarian')
@@ -123,7 +194,13 @@ try {
   const { count } = await db.from('activity_log').select('id', { count: 'exact', head: true }).eq('action', 'librarian.digest').eq('detail->>digest_date', today)
   check('same-day run leaves one digest row', count === 1, `count=${count}`)
 } catch (error) { console.error(error.message); fail++ }
-finally { try { await removeFixtures() } catch (error) { console.error(`cleanup failed: ${error.message}`); fail++ } }
+finally {
+  try {
+    await removeFixtures()
+    const outcome = await restoreDigest()
+    check('pre-existing digest preserved', true, outcome)
+  } catch (error) { console.error(`cleanup failed: ${error.message}`); fail++ }
+}
 
 console.log(`[smoke-librarian] pass=${pass} fail=${fail}`)
 if (fail) process.exitCode = 1
