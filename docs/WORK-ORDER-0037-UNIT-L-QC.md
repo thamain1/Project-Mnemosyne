@@ -160,3 +160,93 @@ Append a **Unit L QC Record** section to `docs/threads/0037-system-improvement-s
 5. **Sign-off line** with the HEAD you reviewed.
 
 Commit the record. Do not push — Jesse pushes.
+
+---
+
+# Round 2 — Re-QC of the HOLD fixes (`0036`)
+
+**For: Aegis.** Your Unit L QC record (`3ef1542`) returned **HOLD** on two defects. Both are now
+addressed and applied. This round decides whether the HOLD lifts.
+
+**Conflict-of-interest note:** Atlas wrote the fixes. Do not treat any claim below as verified — every
+number here is Atlas's, re-derive anything you sign off on.
+
+## What changed
+
+| | |
+|---|---|
+| Migration | `supabase/migrations/0036_librarian_qc_fixes.sql` — **APPLIED** to prod 2026-07-27 |
+| Commit | `ca23357` (migration + rewritten smoke) |
+| Scope | Replaces `run_memory_librarian()` only. **No schema change.** No application code reads the new fields yet. |
+| Number | `0036`, per your recommendation. `0035` stays claimed and unapplied for Unit R. |
+
+### Your defect 1 — `verified_at` NULL evaded the stale queue
+
+**Jesse's decision: NULL stays MEANINGFUL = "never verified".** Your suggested
+`default now()` + `not null` + backfill was deliberately **not** taken, on the grounds that defaulting
+stamps a brand-new unreviewed memory as freshly verified and inverts the librarian's purpose. You
+flagged this as the alternative and said the half-state was the one unacceptable option; this takes
+the other branch.
+
+Implementation: the stale arm now tests `e.verified_at is null or <the two half-life arms>`, orders
+`verified_at asc nulls first` so never-verified outranks merely-stale, and adds a scalar
+`never_verified_count`. The column keeps `nullable=YES, default=NULL`. The three NULL rows are **not**
+backfilled — they are correctly never-verified and now surface on their own.
+
+A scalar rather than a fifth sample section is deliberate: a fifth ~800-char section does not fit
+`log_activity`'s 4096-byte detail cap.
+
+### Your defect 2 — silent truncation, and sibling smoke coverage
+
+Four flat booleans `stale_truncated` / `near_dups_truncated` / `dead_links_truncated` /
+`consolidation_truncated`, computed after the trim loops as `count > jsonb_array_length(sample)` —
+your formula, so one flag covers both the SQL `LIMIT` and the character trim.
+
+Per-section cap **950 → 820**. Not cosmetic: four full sections plus the five new keys would land near
+4100 bytes and make `log_activity` raise, converting a reporting improvement into a hard digest
+failure. **Verify this reasoning and the chosen margin — it is the least-reviewed decision here.**
+
+Smoke rewritten to your spec: runs the librarian once **before** fixtures to baseline all four counts
+from its own predicates, then asserts exact deltas. Samples are checked only for shape and cap honesty.
+
+Beyond your report: all seven fixtures previously shared **one** embedding vector, making them
+C(7,2)=21 mutual near-dup pairs, which is why no exact near-dup delta was assertable. Each fixture now
+gets a distinct one-hot vector, dupA/dupB sharing, so the delta is exactly 1.
+
+## Atlas's results — re-derive, do not trust
+
+- Dry-run (BEGIN → DDL → probes → ROLLBACK): nulls queued, flags consistent both directions,
+  `detail_bytes` 2364, 15 keys, post-rollback confirmed clean.
+- Post-apply gate: `acl_bad_anon_or_auth=none`, `service_role_execute=true`, volatile,
+  `security definer`, `search_path=""`, cron 1× at `10 12 * * *`, and the two negative assertions —
+  `verified_at_still_nullable=YES`, `verified_at_default=NULL`.
+- `scripts/smoke-librarian.mjs` — **27/27, twice consecutively.** Deltas all exactly 1
+  (stale 3→4, near_dups 38→39, dead_links 29→30, consolidation 0→1); `never_verified_count` 3 matches
+  live; detail 2466 bytes.
+- `scripts/smoke-bridge-crm-hybrid.mjs` — **78/78** regression.
+
+## Round-2 targets
+
+1. **Re-derive the defect-1 fix.** Confirm NULL rows are queued and cannot be skipped by any arm.
+   Check the `nulls first` ordering is actually the priority Jesse wants, and that
+   `confirm_memory_verified` remains the only path that clears never-verified state.
+2. **Adversarial pass on the NULL-meaningful choice.** Anything downstream that assumes `verified_at`
+   is populated? Any consumer, query, or future Unit R work this semantic breaks?
+3. **Byte-budget margin.** Independently compute the worst-case `detail` size at cap 820 with all four
+   sections full and the 15 keys present. Is 820 right, too tight, or needlessly lossy?
+4. **Truncation flags.** Verify both directions on real data, including a section that is genuinely
+   complete (flag must be `false`, not merely absent).
+5. **Re-audit the rewritten smoke** as you did the first one. The baseline-digest approach means a
+   failure between the two runs leaves today's digest slot consumed — assess whether that is acceptable.
+6. **Sibling sweep, again.** Is any assertion still trusting a capped sample, or assuming a fixture
+   count that only holds on this dataset?
+7. **Regression:** anything in `0034` that `0036`'s function replacement silently altered.
+
+## Deliverable
+
+Append **Unit L QC Record — Round 2** to `docs/threads/0037-system-improvement-sprint.md`:
+verdict (HOLD lifted / still HOLD), per-target findings with your own evidence, any new defects with
+reproductions, and a sign-off line naming the HEAD you reviewed. Commit; do not push.
+
+Still explicitly **not** done, and not for you to mark complete: the first real librarian digest over
+prod eyeballed with Jesse, i.e. the acceptance demo.
