@@ -17,11 +17,32 @@ const names = {
   dead: `${prefix}-dead-link`, agentA: `${prefix}-agent-a`, agentB: `${prefix}-agent-b`, agentC: `${prefix}-agent-c`,
 }
 const vector = `[${Array.from({ length: 768 }, (_, i) => i === 0 ? '1' : '0').join(',')}]`
+// digest_date is Postgres current_date, i.e. the server's UTC date — so match on UTC components, not
+// local ones. A local-date build would target the wrong digest_date whenever the two disagree.
+const now = new Date()
+const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
 let pass = 0, fail = 0
 function check(label, ok, detail = '') { ok ? pass++ : fail++; console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label}${detail ? `: ${detail}` : ''}`) }
+// The digest always stamps source='cron' (0034 L3), so the old `.like('detail->>source','smoke')`
+// predicate matched nothing and the smoke left its digest row behind. Because run_memory_librarian is
+// same-day idempotent, that made a second same-day run silently assert against the PREVIOUS run's
+// digest — whose fixtures no longer exist. Delete by digest_date instead so the smoke is repeatable.
+// NOTE: this consumes today's digest slot; the daily cron will not re-emit until tomorrow. The digest
+// is report-only and fully regenerable, so that is a deliberate, stated trade for a repeatable smoke.
 async function removeFixtures() {
-  await db.from('activity_log').delete().eq('action', 'librarian.digest').like('detail->>source', 'smoke')
+  await db.from('activity_log').delete().eq('action', 'librarian.digest').eq('detail->>digest_date', today)
   await db.from('memory_entries').delete().in('name', Object.values(names))
+}
+
+// Mirrors the librarian's dead-link query exactly (every unresolved link occurrence, archived rows
+// included) so the assertion can compare counts instead of trusting a truncated sample.
+async function deadLinkCount() {
+  const { data, error } = await db.from('memory_entries').select('name, links').limit(5000)
+  if (error) throw new Error(`deadLinkCount: ${error.message}`)
+  const present = new Set(data.map((r) => r.name))
+  let n = 0
+  for (const row of data) for (const target of row.links ?? []) if (!present.has(target)) n++
+  return n
 }
 async function insert(name, extra = {}) {
   const { error } = await db.from('memory_entries').insert({ name, kind: 'reference', title: name, body: `Smoke fixture ${name}`, links: extra.links ?? [], source_path: extra.source_path ?? `mcp/${name}`, embedding_model: 'gemini-embedding-001', embedding: extra.embedding ?? vector, tags: extra.tags ?? [], verified_at: extra.verified_at ?? new Date().toISOString(), archived: extra.archived ?? false })
@@ -30,6 +51,7 @@ async function insert(name, extra = {}) {
 
 try {
   await removeFixtures()
+  const baselineDead = await deadLinkCount()
   await insert(names.stale, { verified_at: new Date(Date.now() - 7 * 30 * 24 * 60 * 60 * 1000).toISOString() })
   await insert(names.dupA); await insert(names.dupB)
   await insert(names.dead, { links: [`${prefix}-missing`] })
@@ -42,7 +64,14 @@ try {
   const detail = rows?.[0]?.detail ?? {}
   for (const key of ['stale_json', 'near_dups_json', 'dead_links_json', 'consolidation_json']) check(`digest has ${key} section`, typeof detail[key] === 'string')
   check('stale fixture reported', JSON.parse(detail.stale_json ?? '[]').some((x) => x.name === names.stale))
-  check('dead link fixture reported', JSON.parse(detail.dead_links_json ?? '[]').some((x) => x.source === names.dead))
+  // Assert on the COUNT, not the sample. *_json is a capped ~950-char excerpt (0034 L3 trim loop), so
+  // on a real database the fixture is usually trimmed out — prod already carries ~30 dead links and
+  // only ~9 fit. The count is the honest figure; the sample is illustrative and ordered by name.
+  const deadReported = JSON.parse(detail.dead_links_json ?? '[]')
+  check('dead link fixture counted', Number(detail.dead_links_count) === baselineDead + 1,
+    `expected ${baselineDead + 1}, got ${detail.dead_links_count}`)
+  check('dead_links_json is a valid capped sample', Array.isArray(deadReported) && deadReported.length <= Number(detail.dead_links_count),
+    `sample=${deadReported.length} count=${detail.dead_links_count}`)
   check('consolidation group reported', JSON.parse(detail.consolidation_json ?? '[]').some((x) => x.tag === 'client:smoke-client'))
   const second = await db.rpc('run_memory_librarian')
   check('same-day run is idempotent', !second.error, second.error?.message)
