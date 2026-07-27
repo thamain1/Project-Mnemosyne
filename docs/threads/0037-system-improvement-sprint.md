@@ -434,3 +434,146 @@ Implemented the Unit L work order in the working tree while preserving Atlas's i
   satisfy the existing flat-detail audit contract.
 - After apply-go, run `scripts/smoke-librarian.mjs`, the extended bridge smoke, and the revert round-trip
   smoke before any code/migration push.
+
+---
+
+## Unit L QC Record — Aegis — 2026-07-27
+
+### Verdict
+
+**HOLD on final Unit L acceptance at reviewed HEAD `ad249ef`.** This verdict covers the shipped Unit L
+implementation in `54a83b0`, the provisioning correction in `c6d9944`, and the smoke fixes in
+`76ae79e`. Function security, recall-side-table behavior, same-day librarian execution, tool/scope/rate
+parity, and hosted revert all pass independent checks. The hold is for one production lifecycle defect:
+`verified_at` is nullable with no default, and three post-apply MCP-created memories already have
+`verified_at IS NULL`; SQL three-valued logic excludes them forever from both stale predicates. The
+first real digest acceptance demo with Jesse also remains outstanding and is not marked complete here.
+
+### Independent verification run
+
+- `node mcp/test-revert.mjs` — **23/23 PASS**.
+- `npm run build` — **PASS** (`tsc -b`, functions typecheck, Vite production build).
+- `git diff --check` — **PASS** before this record was appended.
+- `node --env-file=.env.local scripts/smoke-librarian.mjs` — **12/12 PASS twice consecutively** on
+  2026-07-27. Both runs reported `dead_links_count=30` with a nine-item capped sample and cleaned up.
+- `node --env-file=.env.local scripts/smoke-bridge-crm-hybrid.mjs` — **78/78 PASS**, including a
+  two-call recall-count increment, unchanged `memory_entries.updated_at`, archive exclusion, unarchive,
+  and anon/authenticated execute denials.
+- A one-off raw hosted-MCP round trip ran
+  `remember → fetch → update → revert(version 1) → fetch`; it restored title, body, and kind, produced
+  the append-only version chain `[1,2]`, and recorded
+  `change_reason='revert to v1: hosted transport QC'`. Exact-name fixture, version, and audit cleanup
+  completed; a final query found zero `smoke-0034-*`/`smoke-0032-*` memory rows.
+- A read-only Supabase Management API catalog query joined `pg_proc`/`pg_namespace`, inspected
+  `pg_class`, `information_schema.columns`, and `cron.job`, and a raw hosted `tools/list` returned all
+  ten tools, including `revert`. No token or secret value was printed.
+
+### Per-target findings
+
+1. **VERIFIED — function ACLs, volatility, and cron.** The live catalog query returned exactly the
+   eight targeted functions with `prosecdef=true`, `proconfig={"search_path=\"\""}`, and
+   `proacl={postgres=X/postgres,service_role=X/postgres}` — no PUBLIC/anon/authenticated execute.
+   `archive_memory`, `confirm_memory_verified`, `get_agent_client_context`,
+   `recall_memory_hybrid`, `log_activity`, and `run_memory_librarian` are volatile; `client_360` and
+   `get_memory_version` are stable. `cron.job` returned one active
+   `mnemosyne_memory_librarian_daily` row at `10 12 * * *` with
+   `select public.run_memory_librarian();`. `memory_recall_stats` has RLS enabled; authenticated has
+   SELECT only, while service-role writes remain available through its bypass/definer paths.
+
+2. **VERIFIED — null-actor carve-out remains exact.** The live function-body probe for the five-arg
+   `log_activity` signature returned true only for
+   `p_action not in ('crm.stale_deals', 'librarian.digest')`; the active-member branch remains the
+   only alternative (`0034_librarian_v1.sql:344-384`). The same live function is service-role-only,
+   so no client role can select the privileged action string to widen the path.
+
+3. **VERIFIED — `archive_memory` signature and flat audit detail.** Live identity arguments are
+   `(uuid,text,boolean,uuid,text)`. The migration defaults both trailing parameters, then rejects a
+   null/blank reason at runtime (`0034:36-66`), which is the valid PostgreSQL shape. Its audit object
+   contains only scalar `name`, `reason`, and string-or-null `superseded_by` values (`0034:87-97`),
+   satisfying `log_activity`'s flat-detail contract. The 78-check live smoke exercised archive and
+   unarchive successfully.
+
+4. **VERIFIED — recall does not mutate entry freshness.** The 78-check live smoke read the entry
+   timestamp, called `recall_memory_hybrid` twice, observed `recall_count` rise from 4 to 6 with a
+   fresh `last_recalled_at`, and observed byte-identical `memory_entries.updated_at`
+   (`smoke-bridge-crm-hybrid.mjs:353-362`). The migration writes only
+   `memory_recall_stats` in both recall RPCs (`0034:218-229`, `323-333`).
+
+5. **VERIFIED — hosted tool/scope/rate parity after the `c6d9944` fix.** A local parser compared all
+   ten `TOOLS` names/scopes in `functions/api/mcp.ts`, all ten `RATE_LIMITS` keys, and all ten
+   `ALL_SCOPES` entries in `scripts/provision-machine.mjs`; the four differences
+   (`missing_rate_bucket`, `orphan_rate_bucket`, `ungrantable_tool_scope`,
+   `orphan_grantable_scope`) were all empty. Raw live `tools/list` returned the same ten names and
+   included `revert`. The bucket dereference at `mcp.ts:409-410` is therefore defined for every tool.
+
+6. **VERIFIED — same-day smoke repeatability fix.** Two consecutive production runs on the same UTC
+   date each passed 12/12. Cleanup now targets `detail->>digest_date` using a UTC-derived date
+   (`smoke-librarian.mjs:20-34`), matching PostgreSQL `current_date`; neither run read the prior run's
+   digest. Final fixture query returned zero.
+
+7. **DEFECT — dead-link fix is sound, but sibling section coverage is not.** The new baseline-count
+   assertion passed twice (`expected 30, got 30`) while the capped sample held nine items, proving the
+   dead-link test no longer trusts the sample (`smoke-librarian.mjs:37-45,67-74`). The sibling audit
+   found:
+   - `near_dups_json` is checked only for string type; neither `near_dups_count` nor the seeded
+     `dupA`/`dupB` pair is asserted (`lines 56,65`). A synthetic digest with
+     `near_dups_count=999` and `near_dups_json='[]'` passes every current near-dup check.
+   - stale and consolidation still search capped samples (`lines 66,75`). Synthetic 16-result
+     digests whose first 15 items omit the fixture have honest counts that include it, while both
+     current fixture assertions fail. These are test false-positive/false-negative defects, not
+     evidence of incorrect production counts.
+
+8. **VERIFIED — hosted revert coverage hole closed during this QC.** The raw hosted round trip
+   exercised the deployed `revert` tool, not the local core alone. The post-revert fetch restored the
+   prior title/body/kind; catalog inspection showed two immutable snapshots; the latest
+   `memory.update` audit reason was canonical; cleanup passed. Local secret-refusal and
+   before-embed/no-update behavior independently remains covered by `mcp/test-revert.mjs` 23/23
+   (`test-revert.mjs:60-69`).
+
+9. **DEFECT (known design wart; no Unit L code change) — digest sample truncation is silent.** Live
+   evidence again showed `dead_links_count=30` with a nine-item sample. Counts remain authoritative,
+   but consumers cannot distinguish a complete sample from a capped one without comparing parsed
+   array length to the count themselves.
+
+### New defects and reproductions
+
+1. **Production lifecycle defect — new memories can evade the stale queue forever.**
+   - Live reproduction:
+     `information_schema.columns` reports `verified_at nullable=YES, default=NULL`; then
+     `select count(*), min(created_at), max(created_at) from memory_entries where verified_at is null`
+     returned **3**, all `source_path` class `mcp`, created from
+     `2026-07-26T22:10:47Z` through `2026-07-27T00:38:52Z` after migration apply.
+   - Static cause: `0034:10-18` adds a nullable/no-default column and backfills only rows existing at
+     apply time. Current creation paths omit the column, including `remember_memory`
+     (`0009_mcp_write_subsystem.sql:125-130`), `ingest_memory_entry`
+     (`0027_bridge_crm_hybrid.sql:118-125`), `upsert_client_brief` (`0030:99-100`), and
+     `record_agent_outcome` (`0031:176-180`).
+   - Impact/reproduction query: both stale arms use `e.verified_at < ...` (`0034:412-429`), which is
+     UNKNOWN for NULL and therefore excludes the row. These entries will never age into the digest.
+   - Required forward fix: in the next migration, backfill NULLs from `updated_at` with
+     `trg_memory_entries_updated_at` disabled as in `0034`, then set `verified_at DEFAULT now()` and
+     `NOT NULL`. If NULL is instead meant to encode “never verified,” the librarian must explicitly
+     queue NULL as unverified; the current half-state is not acceptable.
+
+2. **Librarian-smoke sibling coverage defects.**
+   - Reproduction command evaluated the exact current predicates against synthetic capped digests:
+     near-dups passed all current checks with count 999 and no fixture pair; stale and consolidation
+     counts included a 16th fixture while their sample-search checks returned false.
+   - Required test fix: capture pre-insert baselines for all four counts; assert the expected deltas;
+     parse each sample only for shape/cap honesty. For near-dups, account for the exact number of new
+     pairs produced by two identical fixtures rather than assuming a single pair.
+
+### Recommendation for silent truncation
+
+Claim the first free migration after Unit R's `0035` (prefer
+`0036_librarian_qc_fixes.sql`, subject to Atlas/Jesse's sequencing call) and replace
+`run_memory_librarian()` with four flat boolean fields:
+`stale_truncated`, `near_dups_truncated`, `dead_links_truncated`, and
+`consolidation_truncated`. Compute each after the trim loops as
+`reported_count > jsonb_array_length(reported_sample)`. This covers both SQL row limits and the
+950-character trimming pass, stays inside the existing flat-detail contract, and matches the honest
+truncation behavior already used by `brief` and `client_360`. The same migration is the natural place
+for the `verified_at` default/backfill/not-null repair above.
+
+**AEGIS SIGN-OFF — reviewed HEAD `ad249ef` (`main`); verdict HOLD pending the `verified_at` lifecycle
+forward fix and corrected sibling smoke assertions. No push performed.**
